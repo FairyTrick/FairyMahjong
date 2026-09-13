@@ -80,7 +80,6 @@ class MainActivity : Activity() {
 
     private fun buildInterface() {
         cancelMotion()
-        configureSystemBars()
         val frame = FrameLayout(this)
         gameLayer = frame
         screen = FrameLayout(this).apply {
@@ -149,6 +148,8 @@ class MainActivity : Activity() {
         }
         frame.addView(motion, FrameLayout.LayoutParams(-1, -1))
         setContentView(screen)
+        // Installing the content creates the decor required by Window's insets controller.
+        configureSystemBars()
         screen.setOnApplyWindowInsetsListener { view, insets ->
             // Reserve physical cutouts and the navigation gesture strip. The hidden
             // status bar's pull-down region does not need a full row of layout padding.
