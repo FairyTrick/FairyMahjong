@@ -64,7 +64,7 @@ jobs:
           --tag "$RELEASE_TAG"
 
   compatibility:
-    name: Android ${{ matrix.api }} device checks
+    name: Android API ${{ matrix.api }} device checks
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:

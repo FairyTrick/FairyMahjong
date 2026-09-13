@@ -113,6 +113,16 @@ class Device:
                            if n.get("content-desc", "").startswith("Hand slot ")),
         }
 
+    def settled_game(self):
+        first = self.game()
+        second = self.game()
+        def bounds(state):
+            return sorted((n.get("content-desc", ""), n.get("bounds", ""))
+                          for n in state[0] if n.get("clickable") == "true")
+        require(self.fingerprint(first) == self.fingerprint(second) and bounds(first) == bounds(second),
+                "Board layout is still changing")
+        return second
+
     def rotation(self, nodes):
         matches = [n for n in nodes if n.get("content-desc", "").startswith("Switch to ")
                    and n.get("clickable") == "true"]
@@ -140,7 +150,7 @@ def main():
     saved_settings = {
         (namespace, key): device.adb("shell", "settings", "get", namespace, key)
         for namespace, key in (("system", "font_scale"), ("system", "haptic_feedback_enabled"),
-                               ("global", "animator_duration_scale"), ("global", "always_finish_activities"))
+                               ("global", "animator_duration_scale"))
     }
     original_size = device.adb("shell", "wm", "size")
     original_density = device.adb("shell", "wm", "density")
@@ -190,7 +200,8 @@ def main():
                         not n.get("content-desc").split(", Hint:")[0].endswith(": empty") for n in state[0]),
                     "Picked tile missing from hand")
             return state
-        state = device.wait(picked, "hinted pick")
+        device.wait(picked, "hinted pick")
+        state = device.wait(device.settled_game, "settled board after hinted pick")
         expected = device.fingerprint(state)
         record("Hint search and native tile pick update the hand")
 
@@ -207,12 +218,29 @@ def main():
         device.wait(lambda: stable(expected), "process restart restores progress")
         record("Process death restores board, hand and dismissed onboarding")
 
-        device.adb("shell", "settings", "put", "global", "always_finish_activities", "1")
-        device.adb("shell", "input", "keyevent", "KEYCODE_HOME")
-        device.launch()
-        state = device.wait(lambda: stable(expected), "destroyed Activity restores progress")
-        device.adb("shell", "settings", "put", "global", "always_finish_activities", "0")
-        record("Background Activity destruction preserves progress")
+        # The developer-setting value alone does not activate Activity destruction
+        # on every Android release. am's repeat option explicitly finishes the old
+        # Activity, then starts another instance without killing the app process.
+        recreate_since = device.adb("shell", "date", "'+%m-%d %H:%M:%S.000'")
+        process_before = device.adb("shell", "pidof", PACKAGE)
+        recreated = device.adb("shell", "am", "start", "-W", "-R", "2", "-n",
+                               PACKAGE + "/.MainActivity")
+        require(recreated.count("Status: ok") == 2, "Activity repeat launch failed: " + recreated)
+        def recreated_state():
+            events = device.adb("logcat", "-b", "events", "-d", "-T", recreate_since)
+            app_events = "\n".join(line for line in events.splitlines() if PACKAGE in line)
+            require(re.search(r"(?:am|wm)_finish_activity:", app_events),
+                    "Old Activity was not finished")
+            require(re.search(r"(?:am|wm)_(?:on_create_called|create_activity):", app_events),
+                    "Replacement Activity was not created")
+            require(process_before and device.adb("shell", "pidof", PACKAGE) == process_before,
+                    "Activity test unexpectedly restarted the whole process")
+            result = device.settled_game()
+            require(device.fingerprint(result) == expected, "Board or hand changed during Activity recreation")
+            (args.output / "activity-recreation-events.txt").write_text(app_events, encoding="utf-8")
+            return result
+        state = device.wait(recreated_state, "replacement Activity restores progress")
+        record("Finishing and recreating the Activity preserves progress in the same process")
 
         for index in range(4):
             device.tap(device.rotation(state[0]))
