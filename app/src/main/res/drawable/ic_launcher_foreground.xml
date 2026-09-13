@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The selected Fern Trickster portrait, kept inside the adaptive icon safe area. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="27.8%"
+    android:insetTop="22.2%"
+    android:insetRight="27.8%"
+    android:insetBottom="22.2%">
+    <bitmap
+        android:src="@drawable/fern_trickster_portrait"
+        android:gravity="fill"
+        android:filter="false"
+        android:dither="false" />
+</inset>

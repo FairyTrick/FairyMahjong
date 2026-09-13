@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="instructions_screen" type="id" />
+    <item name="instructions_pick_panel" type="id" />
+    <item name="instructions_pairs_panel" type="id" />
+    <item name="instructions_back_button" type="id" />
+    <item name="instructions_button" type="id" />
+
+    <string name="instructions_title">How to play</string>
+    <string name="instructions_back_to_game">Back to game</string>
+    <string name="instructions_pick_heading">Pick free tiles</string>
+    <string name="instructions_pairs_heading">Make pairs</string>
+    <string name="instructions_pick_rule">Pick an uncovered tile with its left or right side free.</string>
+    <string name="instructions_open_ends">Free ends · blocked middle</string>
+    <string name="instructions_covered">Covered</string>
+    <string name="instructions_board_diagram">Three uncovered tiles touch in a row. The left and right tiles are free; the middle tile is blocked on both sides. In the stack, the lower tile is covered and cannot be picked.</string>
+    <string name="instructions_hint_rule">Follow the numbers: amber first, blue next or held match.</string>
+    <string name="instructions_restart_rule">Sprout: new board.</string>
+    <string name="instructions_rotate_rule">Rotate: new view, new board.</string>
+    <string name="instructions_hand_rule">Your hand holds four tiles. Matching pairs disappear.</string>
+    <string name="instructions_hand_before">3 held + a match</string>
+    <string name="instructions_hand_after">2 remain</string>
+    <string name="instructions_hand_diagram">Three tiles are held: Teal Spell, Fern Trickster and Cherry Blossom. Picking another Teal Spell clears the matching pair immediately, leaving Fern Trickster and Cherry Blossom.</string>
+    <string name="instructions_last_slot">A matching fourth tile still clears.</string>
+    <string name="instructions_exact_image">Only identical images match.</string>
+    <string name="instructions_identity_diagram">Teal Spell and her portrait have different images and do not match.</string>
+    <string name="instructions_end_rule">Four unmatched tiles end the game. Clear every tile to win.</string>
+</resources>

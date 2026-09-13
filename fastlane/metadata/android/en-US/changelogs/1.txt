@@ -1,0 +1,6 @@
+First public release of FairyMahjong.
+• Winnable layered boards and a four-slot matching hand
+• Hints, fresh boards, and an illustrated guide
+• Button-controlled portrait and landscape layouts
+• Light animations, haptic feedback, and saved progress
+• Offline play without ads, accounts, or tracking

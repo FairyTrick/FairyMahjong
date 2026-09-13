@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <size android:width="108dp" android:height="108dp" />
+            <solid android:color="@color/launcher_limestone" />
+            <corners android:radius="18dp" />
+        </shape>
+    </item>
+    <item>
+        <inset
+            android:insetLeft="15.0%"
+            android:insetTop="6.25%"
+            android:insetRight="15.0%"
+            android:insetBottom="6.25%">
+            <bitmap
+                android:src="@drawable/fern_trickster_portrait"
+                android:gravity="fill"
+                android:filter="false"
+                android:dither="false" />
+        </inset>
+    </item>
+</layer-list>

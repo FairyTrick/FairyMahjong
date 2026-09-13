@@ -1,0 +1,27 @@
+Categories:
+  - Puzzle Game
+License: Apache-2.0
+AuthorName: FairyTrick
+AuthorWebSite: https://fairytrick.com
+WebSite: https://fairytrick.com
+SourceCode: https://github.com/FairyTrick/FairyMahjong
+IssueTracker: https://github.com/FairyTrick/FairyMahjong/issues
+Changelog: https://github.com/FairyTrick/FairyMahjong/releases
+
+AutoName: FairyMahjong
+
+RepoType: git
+Repo: https://github.com/FairyTrick/FairyMahjong.git
+
+Builds:
+  - versionName: 0.1.0
+    versionCode: 1
+    commit: v0.1.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9]+\.[0-9]+\.[0-9]+$
+CurrentVersion: 0.1.0
+CurrentVersionCode: 1

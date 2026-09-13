@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="board_viewport" type="id" />
+    <string name="app_name">FairyMahjong</string>
+    <string name="opening_garden">Opening your garden…</string>
+    <string name="new_board">New board</string>
+    <string name="rotate_landscape">Switch to landscape and start a new board</string>
+    <string name="rotate_portrait">Switch to portrait and start a new board</string>
+    <string name="hint">Hint</string>
+    <string name="hint_working">Finding…</string>
+    <string name="hint_searching">Finding a safe hint…</string>
+    <string name="hint_unwinnable">No winning moves remain. Start a new board.</string>
+    <string name="hint_search_limit">No safe hint found yet. Tap Hint to search further.</string>
+    <string name="hint_unconfirmed">Couldn\'t confirm a safe hint for this position.</string>
+    <string name="hint_match_instruction">Pick the highlighted %1$s to make a pair.</string>
+    <string name="hint_pair_instruction">Match the two highlighted %1$s tiles, starting at 1.</string>
+    <string name="hint_steps_instruction">Follow the numbers, starting with %1$s, to match %2$s.</string>
+    <string name="hint_tile_next">Hint: pick next</string>
+    <string name="hint_tile_step">Hint: step %1$d</string>
+    <string name="hint_tile_match">Hint: matching tile</string>
+    <string name="board_complete">Meadow cleared.</string>
+    <string name="hand_full">Your hand is full. Try again?</string>
+    <string name="status_playing">Board status: playing</string>
+    <string name="status_game_over">Board status: game over</string>
+    <string name="status_complete">Board status: complete</string>
+    <string name="tile_game_over">game over</string>
+    <string name="tile_description">%1$s tile, %2$d of %3$d, %4$s</string>
+    <string name="tile_available">available</string>
+    <string name="tile_blocked">blocked</string>
+    <string name="hand_slot">Hand slot %1$d: %2$s</string>
+    <string name="empty_slot">empty</string>
+    <string name="save_recovered">The previous save could not be read. A fresh garden is ready.</string>
+    <string name="save_migrated">Your practice board has become a new three-layer garden.</string>
+    <string name="save_failed">Progress couldn\'t be saved. Your next move will retry.</string>
+</resources>

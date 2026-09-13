@@ -1,0 +1,49 @@
+# Local build and IDE state
+.gradle/
+.kotlin/
+.idea/
+.local/
+**/build/
+local.properties
+*.iml
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+
+# Device captures and investigation output
+artifacts/
+.codex-remote-attachments/
+.nocommit/
+*.log
+
+# Signing material and generated packages never belong in source control
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*.apk
+*.aab
+*.apks
+.env
+.env.*
+
+# Gradle's official wrapper is the only checked-in build-tool binary
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local notes and design studies
+/docs/*
+!/docs/fdroid/
+/tools/fairy_roster_v7_gallery.html
+/tools/integrate_fairy_roster_v7.py
+
+# Credential exports and private keys, including accidentally copied development files.
+gh.txt
+ghorg.txt
+id_ed25519*
+id_rsa*
+*.p12
+*.pfx
+*.pem
+*.key

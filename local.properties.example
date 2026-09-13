@@ -1,0 +1,3 @@
+# Copy to local.properties and set the SDK path on your own machine.
+# Forward slashes also work on Windows. Never commit local.properties.
+sdk.dir=/absolute/path/to/Android/Sdk

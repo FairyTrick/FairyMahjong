@@ -1,0 +1,154 @@
+name: Android
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  JAVA_VERSION: '17'
+  ANDROID_PLATFORM: 'platforms;android-37.0'
+  ANDROID_BUILD_TOOLS: '36.0.0'
+
+jobs:
+  build:
+    name: Test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      # All actions are MIT licensed and pinned to reviewed release commits.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check source files and secrets
+        run: python3 tools/check_publication.py
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache-jdk: false
+
+      - name: Install the project Android SDK packages
+        run: >-
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"
+
+      - name: Test, lint, and build both variants
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :app:testDebugUnitTest :app:lintDebug :app:lintRelease
+          :app:assembleDebug :app:assembleRelease
+
+      - name: Verify release identity and tag
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: >-
+          python3 .github/scripts/verify_apk.py
+          --aapt "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt"
+          --apk app/build/outputs/apk/release/app-release-unsigned.apk
+          --tag "$RELEASE_TAG"
+
+  release:
+    name: Sign and publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'FairyTrick/FairyMahjong'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache-jdk: false
+
+      - name: Install the project Android SDK packages
+        run: >-
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS"
+
+      # Rebuild the checked tag instead of consuming billed Actions storage.
+      - name: Build unsigned release
+        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Verify release identity and tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          python3 .github/scripts/verify_apk.py
+          --aapt "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt"
+          --apk app/build/outputs/apk/release/app-release-unsigned.apk
+          --tag "$RELEASE_TAG"
+
+      - name: Sign and verify APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.FAIRYMAHJONG_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.FAIRYMAHJONG_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.FAIRYMAHJONG_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.FAIRYMAHJONG_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing configured signing secret: FAIRYMAHJONG_${name#ANDROID_}"
+              exit 1
+            fi
+          done
+          umask 077
+          keystore="$RUNNER_TEMP/fairymahjong-release.jks"
+          trap 'rm -f -- "$keystore" "$RUNNER_TEMP/aligned.apk"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          mkdir -p release
+          tools="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
+          apk="release/FairyMahjong-${RELEASE_TAG#v}.apk"
+          "$tools/zipalign" -f -P 16 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$tools/apksigner" sign \
+            --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --v4-signing-enabled false --out "$apk" "$RUNNER_TEMP/aligned.apk"
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          "$tools/apksigner" verify --verbose --print-certs "$apk" > release/signing-certificate.txt
+          (cd release && sha256sum ./*.apk > SHA256SUMS)
+
+      - name: Publish release APK and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Offline fairy tile matching for Android 8.0 and newer.
+
+          Download the APK below. Checksums and signing certificate are included.
+
+          Developer: https://fairytrick.com
+          NOTES
+          gh release create "$RELEASE_TAG" --verify-tag \
+            --title "FairyMahjong ${RELEASE_TAG#v}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            release/*.apk release/SHA256SUMS release/signing-certificate.txt
+
+      - name: Remove temporary release files
+        if: always()
+        run: |
+          rm -f -- "$RUNNER_TEMP/fairymahjong-release.jks" "$RUNNER_TEMP/aligned.apk" "$RUNNER_TEMP/release-notes.md"
+          rm -f -- release/*.apk release/SHA256SUMS release/signing-certificate.txt
