@@ -16,6 +16,9 @@ export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
 mkdir -p "$output" "$ANDROID_AVD_HOME"
 
 "$sdk_tools/sdkmanager" "$ANDROID_PLATFORM" "build-tools;$ANDROID_BUILD_TOOLS" emulator "$image"
+# Finish compilation before the guest competes with Gradle for host memory.
+./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease
+
 "$sdk_tools/avdmanager" --verbose create avd --name "$avd" --package "$image" \
   --device pixel_6 --path "$ANDROID_AVD_HOME/$avd.avd" --force
 test -f "$ANDROID_AVD_HOME/$avd.ini"
@@ -23,19 +26,34 @@ test -f "$ANDROID_AVD_HOME/$avd.avd/config.ini"
 "$ANDROID_HOME/emulator/emulator" -list-avds > "$output/avds.txt"
 grep -Fx "$avd" "$output/avds.txt"
 if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
+memory=2048
+# Match the effective RAM these images request when launched without an override.
+if [ "$api" = 36 ]; then memory=2560; fi
+if [ "$api" = 37 ]; then memory=4096; fi
 "$ANDROID_HOME/emulator/emulator" -avd "$avd" -port 5556 -no-window -no-audio \
-  -no-boot-anim -no-snapshot -gpu swiftshader_indirect -memory 2048 \
+  -no-boot-anim -no-snapshot -gpu swiftshader -memory "$memory" -cores 2 \
   > "$output/emulator.log" 2>&1 &
 emulator_pid=$!
 cleanup() {
-  "$adb" -s "$serial" emu kill >/dev/null 2>&1 || true
+  result=$?
+  if [ "$result" -ne 0 ]; then
+    tail -100 "$output/emulator.log" || true
+    timeout 15 "$adb" -s "$serial" logcat -d -b crash -t 120 || true
+    timeout 15 "$adb" -s "$serial" shell dumpsys activity lastanr || true
+    free -m || true
+    df -h "$RUNNER_TEMP" || true
+  fi
+  timeout 10 "$adb" -s "$serial" emu kill >/dev/null 2>&1 || true
   kill "$emulator_pid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 ready=false
-for attempt in $(seq 1 120); do
+boot_deadline=$((SECONDS + 300))
+while (( SECONDS < boot_deadline )); do
   if ! kill -0 "$emulator_pid" 2>/dev/null; then tail -80 "$output/emulator.log"; exit 1; fi
-  if [ "$("$adb" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; then
+  if [ "$(timeout 10 "$adb" -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ] \
+      && timeout 10 "$adb" -s "$serial" shell pm path android 2>/dev/null | grep -q '^package:' \
+      && timeout 10 "$adb" -s "$serial" shell service check activity 2>/dev/null | grep -q ': found'; then
     ready=true
     break
   fi
@@ -45,7 +63,6 @@ if [ "$ready" != true ]; then tail -80 "$output/emulator.log"; exit 1; fi
 "$adb" -s "$serial" shell input keyevent KEYCODE_WAKEUP
 "$adb" -s "$serial" shell wm dismiss-keyguard
 
-./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease
 "$adb" -s "$serial" install app/build/outputs/apk/debug/app-debug.apk
 "$adb" -s "$serial" install app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 python3 tools/run_native_checks.py --adb "$adb" --serial "$serial" --output "$output/native.txt"
