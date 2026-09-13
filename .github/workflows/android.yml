@@ -51,7 +51,7 @@ jobs:
       - name: Test, lint, and build both variants
         run: >-
           ./gradlew --no-daemon --stacktrace
-          :app:testDebugUnitTest :app:lintDebug :app:lintRelease
+          :app:testDebugUnitTest :app:testHintMemory :app:lintDebug :app:lintRelease
           :app:assembleDebug :app:assembleRelease
 
       - name: Verify release identity and tag
@@ -166,7 +166,7 @@ jobs:
           Developer: https://fairytrick.com
           NOTES
           gh release create "$RELEASE_TAG" --verify-tag \
-            --title "FairyMahjong ${RELEASE_TAG#v}" \
+            --title "Fairy Mahjong ${RELEASE_TAG#v}" \
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             release/*.apk release/SHA256SUMS release/signing-certificate.txt
 

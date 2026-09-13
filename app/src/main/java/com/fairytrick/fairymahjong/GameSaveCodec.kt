@@ -1,5 +1,10 @@
 package com.fairytrick.fairymahjong
 
+import android.util.JsonReader
+import android.util.JsonToken
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.StringReader
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -11,6 +16,22 @@ internal data class DecodedSave(
 
 /** Save geometry itself, so changing a style or generator never changes an existing deal. */
 internal object GameSaveCodec {
+    // A maximum-size board, full pick history and metadata fit comfortably below this.
+    const val MAX_SAVE_BYTES = 64 * 1024
+    private const val MAX_JSON_DEPTH = 8
+
+    fun readBytes(input: InputStream): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(4096)
+        while (true) {
+            val remaining = MAX_SAVE_BYTES - output.size()
+            val count = input.read(buffer, 0, minOf(buffer.size, remaining + 1))
+            if (count < 0) return output.toByteArray()
+            require(count <= remaining) { "Saved game is too large" }
+            output.write(buffer, 0, count)
+        }
+    }
+
     fun encode(game: SavedGame): String {
         val positions = JSONArray()
         game.board.shape.positions.forEach { position ->
@@ -28,6 +49,7 @@ internal object GameSaveCodec {
     }
 
     fun decode(text: String): DecodedSave {
+        validateStructure(text)
         val json = JSONObject(text)
         return when (val version = json.getInt("version")) {
             1 -> migrateLegacySave(json)
@@ -49,9 +71,13 @@ internal object GameSaveCodec {
                         TilePosition(position.strictInt(0), position.strictInt(1), position.strictInt(2))
                     })
                 }
+                val faces = json.getJSONArray("faces")
+                val picks = json.getJSONArray("picks")
+                require(faces.length() == shape.positions.size) { "Invalid saved face count" }
+                require(picks.length() <= shape.positions.size) { "Invalid saved pick count" }
                 val board = GameSnapshot(
-                    faces = json.getJSONArray("faces").intList(strict = version >= 4),
-                    picks = json.getJSONArray("picks").intList(strict = version >= 4),
+                    faces = faces.intList(strict = version >= 4),
+                    picks = picks.intList(strict = version >= 4),
                     shape = shape,
                 )
                 val orientation = if (version >= 5) {
@@ -73,6 +99,39 @@ internal object GameSaveCodec {
         }
     }
 
+    /** Bound nesting before JSONObject's recursive parser sees even an unknown field. */
+    private fun validateStructure(text: String) {
+        require(text.length <= MAX_SAVE_BYTES) { "Saved game is too large" }
+        JsonReader(StringReader(text)).use { reader ->
+            // Older Android JSON accepts comments and unquoted values; retain that tolerance.
+            reader.isLenient = true
+            require(reader.peek() == JsonToken.BEGIN_OBJECT) { "Saved game must be an object" }
+            var depth = 0
+            do {
+                when (reader.peek()) {
+                    JsonToken.BEGIN_OBJECT -> {
+                        require(depth < MAX_JSON_DEPTH) { "Saved game is nested too deeply" }
+                        reader.beginObject()
+                        depth++
+                    }
+                    JsonToken.BEGIN_ARRAY -> {
+                        require(depth < MAX_JSON_DEPTH) { "Saved game is nested too deeply" }
+                        reader.beginArray()
+                        depth++
+                    }
+                    JsonToken.END_OBJECT -> { reader.endObject(); depth-- }
+                    JsonToken.END_ARRAY -> { reader.endArray(); depth-- }
+                    JsonToken.NAME -> reader.nextName()
+                    JsonToken.STRING, JsonToken.NUMBER -> reader.nextString()
+                    JsonToken.BOOLEAN -> reader.nextBoolean()
+                    JsonToken.NULL -> reader.nextNull()
+                    JsonToken.END_DOCUMENT -> error("Incomplete saved game")
+                }
+            } while (depth > 0)
+            require(reader.peek() == JsonToken.END_DOCUMENT) { "Unexpected data after saved game" }
+        }
+    }
+
     private fun JSONArray.intList(strict: Boolean): List<Int> =
         List(length()) { if (strict) strictInt(it) else getInt(it) }
 
@@ -85,8 +144,10 @@ internal object GameSaveCodec {
     private fun migrateLegacySave(json: JSONObject): DecodedSave {
         // Validate the original twelve-tile format before classifying it as a migration.
         // Invalid legacy data still follows the unreadable-save recovery path.
-        val faces = json.getJSONArray("faces").intList(strict = false)
+        val facesJson = json.getJSONArray("faces")
         val pairsJson = json.getJSONArray("matches")
+        require(facesJson.length() == 12 && pairsJson.length() <= 6) { "Invalid legacy board size" }
+        val faces = facesJson.intList(strict = false)
         require(faces.size == 12 && (0 until 6).all { face -> faces.count { it == face } == 2 }) {
             "Invalid legacy board"
         }

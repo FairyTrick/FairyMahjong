@@ -1,0 +1,3 @@
+Improved saved-game recovery and handling of storage errors.
+Reduced memory use in artwork and difficult hint searches.
+The installed app and store listing are now named Fairy Mahjong.

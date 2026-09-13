@@ -1,6 +1,7 @@
 package com.fairytrick.fairymahjong
 
 import java.io.File
+import java.io.ByteArrayInputStream
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
@@ -29,6 +30,10 @@ internal object PersistenceChecks {
             hapticsEnabled = false,
             orientation = BoardOrientation.LANDSCAPE,
         )
+        fun rejectsWithoutVmError(block: () -> Unit) {
+            val failure = runCatching(block).exceptionOrNull()
+            check(failure is Exception) { "Expected ordinary input rejection, got $failure" }
+        }
 
         try {
             checks.test("save codec preserves custom geometry, matched pair, held tile and orientation") {
@@ -94,6 +99,51 @@ internal object PersistenceChecks {
                 rejects { it.getJSONArray("positions").put(1, it.getJSONArray("positions").getJSONArray(0)) }
                 rejects { it.getJSONArray("positions").getJSONArray(0).put(2, 4) }
                 check(runCatching { GameSaveCodec.decode("{\"version\":5,\"faces\":[") }.isFailure)
+            }
+
+            checks.test("save parser bounds unknown nesting and rejects oversized input before recursion") {
+                val encoded = GameSaveCodec.encode(original)
+                val nested = encoded.dropLast(1) + ",\"extra\":" +
+                    "[".repeat(8192) + "0" + "]".repeat(8192) + "}"
+                check(nested.length < GameSaveCodec.MAX_SAVE_BYTES)
+                rejectsWithoutVmError { GameSaveCodec.decode(nested) }
+                rejectsWithoutVmError { GameSaveCodec.decode(encoded + " ".repeat(GameSaveCodec.MAX_SAVE_BYTES)) }
+                rejectsWithoutVmError { GameSaveCodec.decode(encoded + "{}") }
+                // Brackets and escaped quotes within strings are data, not nesting.
+                val strings = JSONObject(encoded).put("extra", "[\\\"".repeat(2048)).toString()
+                check(GameSaveCodec.decode(strings).game == original)
+                for (key in listOf("faces", "picks")) {
+                    val tooMany = JSONObject(encoded).put(key, JSONArray(List(257) { 0 }))
+                    rejectsWithoutVmError { GameSaveCodec.decode(tooMany.toString()) }
+                }
+            }
+
+            checks.test("bounded save read consumes at most one byte beyond the limit") {
+                val source = ByteArrayInputStream(ByteArray(GameSaveCodec.MAX_SAVE_BYTES + 4096) { 32 })
+                rejectsWithoutVmError { GameSaveCodec.readBytes(source) }
+                check(source.available() == 4095)
+                val encoded = GameSaveCodec.encode(original)
+                val atLimit = encoded.padEnd(GameSaveCodec.MAX_SAVE_BYTES).toByteArray(Charsets.UTF_8)
+                check(atLimit.size == GameSaveCodec.MAX_SAVE_BYTES)
+                val accepted = GameSaveCodec.readBytes(ByteArrayInputStream(atLimit))
+                check(accepted.contentEquals(atLimit))
+                check(GameSaveCodec.decode(accepted.toString(Charsets.UTF_8)).game == original)
+            }
+
+            checks.test("maximum save geometry and full history remain below the input limit") {
+                val shape = BoardShape("m".repeat(80), buildList {
+                    for (layer in 0..3) for (y in 0..7) for (x in 0..7) {
+                        add(TilePosition(Int.MAX_VALUE - 14 + x * 2, Int.MIN_VALUE + y * 2, layer))
+                    }
+                })
+                val remaining = BooleanArray(256) { true }
+                val order = List(256) {
+                    remaining.indices.first { shape.geometry.isFree(it, remaining) }.also { remaining[it] = false }
+                }
+                val maximum = SavedGame(GameSnapshot(List(256) { 0 }, order, shape), false, BoardOrientation.LANDSCAPE)
+                val encoded = GameSaveCodec.encode(maximum)
+                check(encoded.toByteArray(Charsets.UTF_8).size < GameSaveCodec.MAX_SAVE_BYTES)
+                check(GameSaveCodec.decode(encoded).game == maximum)
             }
 
             checks.test("application writer orders rapid saves and reloads on the main looper") {
@@ -170,6 +220,27 @@ internal object PersistenceChecks {
                 check(restarted.game == loaded.game && !restarted.recoveredUnreadableSave)
             }
 
+            checks.test("oversized and deeply nested base or backup saves recover without killing the writer") {
+                val nested = "{\"extra\":" + "[".repeat(8192) + "0" + "]".repeat(8192) + "}"
+                for (backup in listOf(false, true)) {
+                    for (malformed in listOf(nested, " ".repeat(GameSaveCodec.MAX_SAVE_BYTES + 1))) {
+                        val directory = directory()
+                        val input = if (backup) File(directory, "practice-board.json.bak") else saveFile(directory)
+                        input.writeText(malformed)
+                        val store = checks.onMain { GameStore(directory) }
+                        val loaded = load(store)
+                        check(loaded.recoveredUnreadableSave && loaded.saveAvailable)
+                        check(MahjongGame(loaded.game.board).boardTileCount > 12)
+                        check(load(checks.onMain { GameStore(directory) }).game == loaded.game)
+                        val saved = AtomicReference<Boolean>()
+                        checks.onMain { store.save(original) { saved.set(it) } }
+                        checks.await("save after oversized input recovery") { saved.get() != null }
+                        check(saved.get())
+                        check(load(checks.onMain { GameStore(directory) }).game == original)
+                    }
+                }
+            }
+
             checks.test("failed storage retains live progress and reports failure instead of crashing") {
                 val directory = File(directory(), "blocked-directory").apply { writeText("not a directory") }
                 val store = checks.onMain { GameStore(directory) }
@@ -179,6 +250,20 @@ internal object PersistenceChecks {
                 check(!saved.get())
                 val loaded = load(store)
                 check(loaded.game == original && !loaded.saveAvailable)
+            }
+
+            checks.test("failed AtomicFile replacement cannot report a successful save") {
+                val directory = directory()
+                val blockedDestination = saveFile(directory).apply { check(mkdir()) }
+                File(blockedDestination, "keep").writeText("prevents directory replacement")
+                val store = checks.onMain { GameStore(directory) }
+                val saved = AtomicReference<Boolean>()
+                checks.onMain { store.save(original) { saved.set(it) } }
+                checks.await("failed commit callback") { saved.get() != null }
+                check(!saved.get()) { "A write without a committed save reported success" }
+                check(load(store).let { it.game == original && !it.saveAvailable })
+                val restarted = load(checks.onMain { GameStore(directory) })
+                check(!restarted.saveAvailable && restarted.game != original)
             }
 
             checks.test("Android solver stack supports the maximum saved geometry and cancellation retry") {

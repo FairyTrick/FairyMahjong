@@ -43,7 +43,7 @@ def main() -> None:
     require("android.permission.INTERNET" not in badging,
             "The offline game must not request Internet access")
     require("sdkVersion:'26'" in badging, "Unexpected minimum Android API level")
-    require("application-label:'FairyMahjong'" in badging, "Unexpected app name")
+    require("application-label:'Fairy Mahjong'" in badging, "Unexpected app name")
 
     with zipfile.ZipFile(args.apk) as archive:
         for name in ("LICENSE", "NOTICE"):

@@ -15,6 +15,25 @@ import java.lang.reflect.Modifier
 /** Uses the device's real decoder, Canvas, resource system and View constructors. */
 internal object RenderingChecks {
     fun run(checks: NativeChecks) {
+        checks.test("Live tiles keep sharing artwork after the idle cache fills") {
+            checks.onMain {
+                val context = themed(checks.instrumentation.targetContext)
+                val faces = TileCatalog.faces.filter { it.assetPath != null }
+                val firstTiles = faces.map { face -> ImageView(context).also { TileArtwork.bind(it, face.id) } }
+                // A supported restored board can use the whole catalog. Binding another copy
+                // must not decode pixels already held by a visible board or hand tile.
+                for ((index, face) in faces.withIndex()) {
+                    val next = ImageView(context).also { TileArtwork.bind(it, face.id) }
+                    val first = firstTiles[index].drawable
+                    check(first !== next.drawable) { "Tiles must own independent drawable state" }
+                    val sprite = first.javaClass.getDeclaredField("sprite").apply { isAccessible = true }
+                    check(sprite.get(first) === sprite.get(next.drawable)) {
+                        "Live artwork ${face.id} was decoded again after cache eviction"
+                    }
+                }
+            }
+        }
+
         checks.test("Every bundled tile face decodes and draws on a software Canvas") {
             checks.onMain {
                 val context = themed(checks.instrumentation.targetContext)

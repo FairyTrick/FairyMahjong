@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="board_viewport" type="id" />
-    <string name="app_name">FairyMahjong</string>
+    <string name="app_name">Fairy Mahjong</string>
     <string name="opening_garden">Opening your garden…</string>
     <string name="new_board">New board</string>
     <string name="rotate_landscape">Switch to landscape and start a new board</string>

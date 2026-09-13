@@ -1,6 +1,7 @@
 package com.fairytrick.fairymahjong
 
 import android.app.Activity
+import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
@@ -20,6 +21,9 @@ import android.window.OnBackInvokedDispatcher
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
+
+// An optional onboarding preference with the wrong stored type must not prevent startup.
+internal fun hasSeenInstructions(preferences: SharedPreferences): Boolean = preferences.all["seen"] == true
 
 class MainActivity : Activity() {
     private val muted = Color.rgb(230, 238, 210)
@@ -72,7 +76,7 @@ class MainActivity : Activity() {
                 loaded.recoveredUnreadableSave -> showSaveNotice(R.string.save_recovered)
                 loaded.migratedLegacySave -> showSaveNotice(R.string.save_migrated)
             }
-            if (instructionsOpen || !getSharedPreferences("instructions", MODE_PRIVATE).getBoolean("seen", false)) {
+            if (instructionsOpen || !hasSeenInstructions(getSharedPreferences("instructions", MODE_PRIVATE))) {
                 showInstructions()
             }
         }

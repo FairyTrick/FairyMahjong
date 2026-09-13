@@ -19,8 +19,8 @@ android {
         applicationId = "com.fairytrick.fairymahjong"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
         testInstrumentationRunner = "com.fairytrick.fairymahjong.ReliabilityInstrumentation"
     }
 
@@ -68,4 +68,22 @@ configurations.configureEach {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+}
+
+tasks.register<Test>("testHintMemory") {
+    group = "verification"
+    description = "Runs the difficult hint regression with a 64 MiB heap."
+    // AGP registers variant test tasks later. Resolve their compiled inputs only when
+    // Gradle builds this task's dependency graph, without executing the full test suite.
+    val ordinaryTests = providers.provider { tasks.named<Test>("testDebugUnitTest").get() }
+    testClassesDirs = files(ordinaryTests.map { it.testClassesDirs })
+    classpath = files(ordinaryTests.map { it.classpath })
+    dependsOn(ordinaryTests.map { it.taskDependencies.getDependencies(it) })
+    maxHeapSize = "64m"
+    useJUnit()
+    filter { includeTestsMatching("com.fairytrick.fairymahjong.HintMemoryTest") }
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
 }

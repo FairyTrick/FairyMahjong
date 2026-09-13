@@ -1,11 +1,11 @@
-# FairyMahjong
+# Fairy Mahjong
 
 Offline fairy tile matching for Android 8.0 and newer, by [FairyTrick](https://fairytrick.com).
 
 [Download](https://github.com/FairyTrick/FairyMahjong/releases)
 · [Builds](https://github.com/FairyTrick/FairyMahjong/actions)
 
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-portrait.png" alt="FairyMahjong gameplay" width="360">
+<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/01-portrait.png" alt="Fairy Mahjong gameplay" width="360">
 
 ## Build
 

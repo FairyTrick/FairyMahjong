@@ -214,7 +214,10 @@ class HintEngine {
             }
             // Cancellation / a spent budget throws before reaching here. Unknowns are never
             // memoized as losses. Even face counts make held parity a function of mask alone.
-            losing.add(mask)
+            // Memoization only skips already-proven losses. Once the retained set is full,
+            // keep searching under the node budget without retaining more masks. This keeps
+            // larger retries useful without letting a difficult board consume the app heap.
+            if (losing.size < MAX_MEMOIZED_LOSSES) losing.add(mask)
             return false
         }
 
@@ -258,6 +261,10 @@ class HintEngine {
     }
 
     private companion object {
+        // A mask covers at most 256 tiles. Bound live memo storage independently of the
+        // caller's node budget; temporary candidates are limited by the 256-pick depth.
+        const val MAX_MEMOIZED_LOSSES = 65_536
+
         fun <T> immutableCopy(values: List<T>): List<T> =
             Collections.unmodifiableList(ArrayList(values))
     }

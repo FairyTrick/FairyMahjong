@@ -18,6 +18,7 @@ class ReliabilityInstrumentation : Instrumentation() {
         val checks = NativeChecks(this)
         try {
             PersistenceChecks.run(checks)
+            InstructionsPreferenceChecks.run(checks)
             RenderingChecks.run(checks)
         } catch (failure: Throwable) {
             checks.test("test suite setup") { throw failure }

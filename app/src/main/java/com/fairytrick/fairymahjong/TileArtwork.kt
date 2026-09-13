@@ -18,6 +18,7 @@ import android.util.LruCache
 import android.view.View
 import android.widget.ImageView
 import org.json.JSONObject
+import java.lang.ref.WeakReference
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
@@ -144,10 +145,17 @@ private object FairyBitmapCache {
     private val cache = object : LruCache<Int, FairySprite>(8 * 1024 * 1024) {
         override fun sizeOf(key: Int, value: FairySprite) = value.bitmap.allocationByteCount
     }
+    // The LRU bounds idle artwork, but an evicted sprite may still be on the board.
+    // Reuse those live pixels without retaining them after the last tile releases them.
+    private val live = mutableMapOf<Int, WeakReference<FairySprite>>()
     private var framing: JSONObject? = null
 
     @Synchronized fun get(context: Context, face: TileFace): FairySprite {
         cache.get(face.id)?.let { return it }
+        live[face.id]?.get()?.let { sprite ->
+            cache.put(face.id, sprite)
+            return sprite
+        }
         val assets = context.applicationContext.assets
         val path = requireNotNull(face.assetPath)
         val dimensions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -177,6 +185,9 @@ private object FairyBitmapCache {
             ceil(coordinates.getDouble(3) * bitmap.height).toInt().coerceIn(1, bitmap.height),
         )
         check(!source.isEmpty) { "Invalid fairy content frame: $path" }
-        return FairySprite(bitmap, source, background).also { cache.put(face.id, it) }
+        return FairySprite(bitmap, source, background).also {
+            live[face.id] = WeakReference(it)
+            cache.put(face.id, it)
+        }
     }
 }

@@ -46,8 +46,8 @@ class GameStore(directory: File) {
             if (game == null) {
                 if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) {
                     game = try {
-                        val decoded = file.openRead().bufferedReader(Charsets.UTF_8).use {
-                            GameSaveCodec.decode(it.readText())
+                        val decoded = file.openRead().use {
+                            GameSaveCodec.decode(GameSaveCodec.readBytes(it).toString(Charsets.UTF_8))
                         }
                         migrated = decoded.migratedLegacySave
                         requiresRewrite = decoded.requiresRewrite
@@ -93,10 +93,14 @@ class GameStore(directory: File) {
         var stream: FileOutputStream? = null
         return try {
             val bytes = GameSaveCodec.encode(game).toByteArray(Charsets.UTF_8)
+            require(bytes.size <= GameSaveCodec.MAX_SAVE_BYTES) { "Saved game is too large" }
             stream = file.startWrite()
             stream.write(bytes)
+            // AtomicFile logs some sync/rename failures instead of throwing them.
+            stream.fd.sync()
             file.finishWrite(stream)
-            true
+            stream = null
+            file.openRead().use { GameSaveCodec.readBytes(it).contentEquals(bytes) }
         } catch (_: Exception) {
             runCatching { file.failWrite(stream) }
             false
