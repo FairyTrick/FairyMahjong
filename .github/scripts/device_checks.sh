@@ -27,11 +27,17 @@ test -f "$ANDROID_AVD_HOME/$avd.avd/config.ini"
 grep -Fx "$avd" "$output/avds.txt"
 if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
 memory=2048
+graphics_features=()
 # Match the effective RAM these images request when launched without an override.
 if [ "$api" = 36 ]; then memory=2560; fi
-if [ "$api" = 37 ]; then memory=4096; fi
+if [ "$api" = 37 ]; then
+  memory=4096
+  # The Linux 16 KiB guest graphics driver rejects direct-memory readback.
+  graphics_features=(-feature -GLDirectMem)
+fi
 "$ANDROID_HOME/emulator/emulator" -avd "$avd" -port 5556 -no-window -no-audio \
-  -no-boot-anim -no-snapshot -gpu swiftshader -memory "$memory" -cores 2 \
+  -no-boot-anim -no-snapshot -gpu swiftshader -memory "$memory" -cores 2 -partition-size 4096 \
+  "${graphics_features[@]}" \
   > "$output/emulator.log" 2>&1 &
 emulator_pid=$!
 cleanup() {
@@ -40,6 +46,7 @@ cleanup() {
     tail -100 "$output/emulator.log" || true
     timeout 15 "$adb" -s "$serial" logcat -d -b crash -t 120 || true
     timeout 15 "$adb" -s "$serial" shell dumpsys activity lastanr || true
+    timeout 15 "$adb" -s "$serial" shell df -h /data || true
     free -m || true
     df -h "$RUNNER_TEMP" || true
   fi
