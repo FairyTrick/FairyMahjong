@@ -1,0 +1,1 @@
+Reduced memory use in the instructions screen and fixed the rotation button becoming unavailable in large windows.

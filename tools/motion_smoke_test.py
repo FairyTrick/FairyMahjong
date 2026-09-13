@@ -20,11 +20,7 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-import numpy as np
-from PIL import Image, ImageChops
-
-from artwork_smoke_test import catalog_names
-from hint_smoke_test import TILE
+from smoke_fixtures import TILE, catalog_names
 from meadow_ui_smoke_test import meadow_fixture
 from save_migration_smoke_test import SAVE_PATHS, free_tiles, replay, require
 from test_device_guard import require_test_emulator
@@ -37,6 +33,8 @@ SEEN_PREFERENCES = b'<?xml version="1.0" encoding="utf-8"?><map><boolean name="s
 
 def video_evidence(path, ffmpeg, ffprobe):
     """Count pixels absent from both settled states, excluding system gesture UI."""
+    import numpy as np
+
     info = json.loads(subprocess.run(
         [ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries",
          "stream=width,height", "-of", "json", str(path)], capture_output=True,
@@ -236,6 +234,8 @@ def main():
         return path
 
     def same_picture(first, second):
+        from PIL import Image, ImageChops
+
         with Image.open(first) as a, Image.open(second) as b:
             require(a.size == b.size, "Settled screenshots have different sizes")
             region = (0, 0, a.width, int(a.height * .955))

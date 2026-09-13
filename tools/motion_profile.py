@@ -19,7 +19,7 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-from hint_smoke_test import TILE
+from smoke_fixtures import TILE
 from save_migration_smoke_test import SAVE_PATHS, free_tiles, replay, require
 from test_device_guard import require_test_emulator
 

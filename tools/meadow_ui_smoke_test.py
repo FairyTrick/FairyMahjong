@@ -24,10 +24,8 @@ import time
 import xml.etree.ElementTree as ET
 
 from test_device_guard import require_test_emulator
-from PIL import Image, ImageChops, ImageStat
 
-from artwork_smoke_test import catalog_names
-from hint_smoke_test import TILE, fixture, winnable
+from smoke_fixtures import TILE, catalog_names, fixture, winnable
 from save_migration_smoke_test import SAVE_PATHS, free_tiles, require, replay
 
 
@@ -154,6 +152,8 @@ def main():
         report["screenshots"].append(name)
 
     def unchanged_tile_colors(before, after, old_node, new_node):
+        from PIL import Image, ImageChops, ImageStat
+
         rectangle = bounds(old_node)
         require(rectangle == bounds(new_node), "Unlocking a tile shifted its screen position")
         left, top, right, bottom = rectangle

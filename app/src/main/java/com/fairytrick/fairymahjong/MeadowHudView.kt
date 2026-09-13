@@ -83,7 +83,9 @@ class MeadowHudView @JvmOverloads constructor(
         val rotationLabel = context.getString(if (landscape) R.string.rotate_portrait else R.string.rotate_landscape)
         rotateButton.contentDescription = rotationLabel
         rotateButton.tooltipText = rotationLabel
-        rotateButton.isEnabled = landscape == (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+        // Large screens and some window modes may ignore an orientation request.
+        // The next toggle still creates a new deal and must remain available.
+        rotateButton.isEnabled = true
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -207,7 +209,7 @@ private class MeadowHandView(context: Context) : ViewGroup(context) {
 }
 
 /** Preserves the generated PNG and trims only its transparent framing at draw time. */
-private class MeadowSpriteDrawable(
+internal class MeadowSpriteDrawable(
     context: Context, resource: Int, private val interactive: Boolean = false,
     private val vertical: Boolean = false,
 ) : Drawable() {

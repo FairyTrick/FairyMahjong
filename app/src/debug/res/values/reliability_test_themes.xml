@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Exercised only by native tests; excluded from release resources. -->
+    <style name="ReliabilityHiddenViewTheme" parent="AppTheme">
+        <item name="android:visibility">gone</item>
+        <item name="android:hapticFeedbackEnabled">false</item>
+    </style>
+</resources>

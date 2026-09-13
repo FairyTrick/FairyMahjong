@@ -100,7 +100,8 @@ internal class HowToPlayView(
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(ImageView(context).apply {
-            setImageResource(art)
+            // Share the HUD's sampled pixels instead of decoding a full-size PNG for the guide.
+            setImageDrawable(MeadowSpriteDrawable(context, art))
             scaleType = ImageView.ScaleType.FIT_CENTER
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(if (landscape) 34 else 38), dp(if (landscape) 34 else 38)).apply { marginEnd = dp(10) })

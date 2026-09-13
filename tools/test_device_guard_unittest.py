@@ -85,13 +85,15 @@ class TestDeviceGuard(unittest.TestCase):
         # Exercise actual entry points, so a misplaced guard inside a cleanup
         # try/finally would be caught if rejection still force-stopped/relaunched.
         modules = sorted(path.stem for path in Path(__file__).parent.glob("*smoke_test.py"))
+        modules += ["release_compatibility_test", "run_native_checks"]
         self.assertGreaterEqual(len(modules), 8)
         with patch.object(Path, "mkdir"):
             for name in modules:
                 module = importlib.import_module(name)
+                extra = ["--apk", "unused.apk"] if name == "release_compatibility_test" else []
                 for serial in ("emulator-5556", "R5CT123456"):
                     with self.subTest(module=name, serial=serial), patch.object(sys, "argv", [
-                            name, "--serial", serial, "--output", "unused-native-test-output"]), patch("subprocess.run",
+                            name, "--serial", serial, "--output", "unused-native-test-output", *extra]), patch("subprocess.run",
                             return_value=response(b"Pixel_10\r\nOK\r\n")) as run:
                         with self.assertRaises(RuntimeError):
                             module.main()

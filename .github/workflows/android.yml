@@ -34,6 +34,9 @@ jobs:
       - name: Check source files and secrets
         run: python3 tools/check_publication.py
 
+      - name: Test device guards and fixtures
+        run: python3 -m unittest discover -s tools -p 'test_*.py'
+
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -60,10 +63,30 @@ jobs:
           --apk app/build/outputs/apk/release/app-release-unsigned.apk
           --tag "$RELEASE_TAG"
 
+  compatibility:
+    name: Android ${{ matrix.api }} device checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 30, 36, 37]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache-jdk: false
+      - name: Test native framework behavior and the minified release
+        run: bash .github/scripts/device_checks.sh '${{ matrix.api }}'
+
   release:
     name: Sign and publish tagged release
     if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'FairyTrick/FairyMahjong'
-    needs: build
+    needs: [build, compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
