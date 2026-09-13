@@ -47,6 +47,8 @@ cleanup() {
     timeout 15 "$adb" -s "$serial" logcat -d -b crash -t 120 || true
     # A killed instrumentation process may leave no Java/native crash entry.
     timeout 15 "$adb" -s "$serial" shell dumpsys activity exit-info com.fairytrick.fairymahjong || true
+    timeout 15 "$adb" -s "$serial" logcat -d -b events -t 2000 \
+      | grep -E 'com\.fairytrick\.fairymahjong|am_kill|am_crash|am_anr|am_low_memory' || true
     timeout 15 "$adb" -s "$serial" logcat -d -b all -t 500 || true
     timeout 15 "$adb" -s "$serial" shell dumpsys activity lastanr || true
     timeout 15 "$adb" -s "$serial" shell df -h /data || true

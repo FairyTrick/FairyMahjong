@@ -42,11 +42,14 @@ class Device:
         result = self.adb("shell", "am", "start", "-W", "-n", PACKAGE + "/.MainActivity")
         require("Status: ok" in result, "Activity launch failed: " + result)
 
-    def ui(self):
+    def ui_markup(self, timeout=40):
         remote = "/data/local/tmp/fairy-compat-ui.xml"
-        self.adb("shell", "rm", "-f", remote)
-        self.adb("shell", "uiautomator", "dump", remote)
-        markup = self.adb("shell", "cat", remote)
+        self.adb("shell", "rm", "-f", remote, timeout=timeout)
+        self.adb("shell", "uiautomator", "dump", remote, timeout=timeout)
+        return self.adb("shell", "cat", remote, timeout=timeout)
+
+    def ui(self):
+        markup = self.ui_markup()
         nodes = list(ET.fromstring(markup).iter("node"))
         # First full-screen launch can have a platform-owned acknowledgement.
         lesson = [n for n in nodes if n.get("resource-id") in
@@ -90,6 +93,29 @@ class Device:
         self.button(nodes, "Back to game")
         return nodes
 
+    def require_game_focus(self):
+        windows = self.adb("shell", "dumpsys", "window")
+        focused = re.findall(r"^\s*mCurrentFocus=(.*)$", windows, flags=re.MULTILINE)
+        require(any(PACKAGE + "/" in window for window in focused),
+                "Game window does not have input focus: " + "; ".join(focused))
+
+    def settled_guide(self):
+        # Read the UI first so the platform's first-use lesson can still be
+        # dismissed before checking which window receives game input.
+        first = self.guide()
+        self.require_game_focus()
+        second = self.guide()
+        self.require_game_focus()
+
+        def bounds(nodes):
+            return sorted((node.get("resource-id", ""), node.get("content-desc", ""),
+                           node.get("bounds", "")) for node in nodes
+                          if node.get("clickable") == "true" or
+                          node.get("resource-id", "").startswith(PACKAGE + ":id/instructions_"))
+
+        require(bounds(first) == bounds(second), "Guide layout is still changing")
+        return second
+
     def game(self):
         nodes = self.ui()
         require(not any(n.get("resource-id") == PACKAGE + ":id/instructions_screen" for n in nodes),
@@ -115,7 +141,9 @@ class Device:
 
     def settled_game(self):
         first = self.game()
+        self.require_game_focus()
         second = self.game()
+        self.require_game_focus()
         def bounds(state):
             return sorted((n.get("content-desc", ""), n.get("bounds", ""))
                           for n in state[0] if n.get("clickable") == "true")
@@ -133,6 +161,59 @@ class Device:
         image = self.command("exec-out", "screencap", "-p").stdout
         require(image.startswith(b"\x89PNG\r\n\x1a\n"), "Screenshot failed")
         (self.output / (name + ".png")).write_bytes(image)
+
+    def capture_failure(self, crash_since):
+        # Inspect the failed configuration before main's finally resets it or
+        # force-stops the process. One unavailable source must not hide the others.
+        errors = []
+
+        def collect(name, action):
+            try:
+                value = action()
+                if value is not None:
+                    (self.output / name).write_text(value, encoding="utf-8")
+                return value or ""
+            except Exception as failure:
+                errors.append(f"{name}: {failure}")
+                return ""
+
+        collect("failure.png", lambda: self.capture("failure"))
+        markup = collect("failure-ui.xml", lambda: self.ui_markup(timeout=15))
+        windows = collect("failure-windows.txt", lambda: self.adb(
+            "shell", "dumpsys", "window", timeout=15))
+        activities = collect("failure-activities.txt", lambda: self.adb(
+            "shell", "dumpsys", "activity", "activities", timeout=15))
+        exits = collect("failure-exit-info.txt", lambda: self.adb(
+            "shell", "dumpsys", "activity", "exit-info", PACKAGE, check=False, timeout=15))
+        events = collect("failure-events.txt", lambda: self.adb(
+            "logcat", "-b", "events", "-d", "-T", crash_since, timeout=15))
+        crashes = collect("failure-crashes.txt", lambda: self.adb(
+            "logcat", "-b", "crash", "-d", "-T", crash_since, timeout=15))
+
+        # CI console output survives even if artifacts cannot be uploaded.
+        print("Failure state before restoring device settings:", flush=True)
+        window_fields = re.compile(r"mCurrentFocus|mFocusedApp|mTopFocusedDisplayId|"
+                                   r"mAppTransitionState|mDisplayReady|mObscuringWindow")
+        activity_fields = re.compile(r"mResumedActivity|topResumedActivity|mLastReportedConfiguration|"
+                                     r"mCurrentConfig|mLastReportedMultiWindowMode")
+        for title, source, pattern in (("Window", windows, window_fields),
+                                        ("Activity", activities, activity_fields)):
+            print(title + ":\n" + "\n".join(line for line in source.splitlines()
+                                             if pattern.search(line)), flush=True)
+        if markup:
+            try:
+                controls = [dict(node.attrib) for node in ET.fromstring(markup).iter("node")
+                            if node.get("clickable") == "true"
+                            and not TILE.match(node.get("content-desc", ""))]
+                print("Visible controls: " + json.dumps(controls), flush=True)
+            except ET.ParseError as failure:
+                errors.append(f"failure-ui.xml parsing: {failure}")
+        print("App events:\n" + "\n".join(line for line in events.splitlines() if PACKAGE in line),
+              flush=True)
+        print("Exit info:\n" + exits, flush=True)
+        print("Crash buffer:\n" + crashes, flush=True)
+        if errors:
+            print("Unavailable failure diagnostics:\n" + "\n".join(errors), flush=True)
 
 
 def main():
@@ -178,7 +259,7 @@ def main():
         device.adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
         device.adb("shell", "wm", "dismiss-keyguard")
         device.launch()
-        nodes = device.wait(device.guide, "fresh-launch onboarding")
+        nodes = device.wait(device.settled_guide, "fresh-launch onboarding")
         device.capture("01-first-launch")
         device.tap(device.button(nodes, "Back to game"))
         nodes, tiles = device.wait(device.game, "first playable board")
@@ -206,7 +287,7 @@ def main():
         record("Hint search and native tile pick update the hand")
 
         device.tap(device.button(state[0], "How to play"))
-        device.wait(device.guide, "reopened guide")
+        device.wait(device.settled_guide, "reopened guide")
         device.adb("shell", "input", "keyevent", "KEYCODE_BACK")
         device.wait(lambda: stable(expected), "guide preserves progress")
         record("Guide and Android Back preserve board and held tiles")
@@ -244,12 +325,12 @@ def main():
 
         for index in range(4):
             device.tap(device.rotation(state[0]))
-            state = device.wait(device.game, "rotation rebuild")
+            state = device.wait(device.settled_game, "rotation rebuild")
             device.rotation(state[0])
             device.tap(device.button(state[0], "How to play"))
-            nodes = device.wait(device.guide, "rotated guide")
+            nodes = device.wait(device.settled_guide, "rotated guide")
             device.tap(device.button(nodes, "Back to game"))
-            state = device.wait(device.game, "rotated board")
+            state = device.wait(device.settled_game, "rotated board")
         record("Repeated manual rotations rebuild playable boards and both guide arrangements")
 
         device.adb("shell", "settings", "put", "global", "animator_duration_scale", "0")
@@ -267,17 +348,18 @@ def main():
             device.adb("shell", "wm", "size", size)
             device.adb("shell", "wm", "density", density)
             device.adb("shell", "settings", "put", "system", "font_scale", font)
-            # Also exercise the first-launch guide at this size/configuration.
+            # The saved orientation can be applied after am start returns; wait
+            # for stable control bounds before using coordinates from the dump.
             device.adb("shell", "am", "force-stop", PACKAGE)
             device.launch()
-            state = device.wait(device.game, label + " board")
+            state = device.wait(device.settled_game, label + " board")
             device.tap(device.button(state[0], "How to play"))
-            nodes = device.wait(device.guide, label + " guide")
+            nodes = device.wait(device.settled_guide, label + " guide")
             device.capture(label)
             device.tap(device.button(nodes, "Back to game"))
-            state = device.wait(device.game, label + " guide close")
+            state = device.wait(device.settled_game, label + " guide close")
             device.tap(device.rotation(state[0]))
-            state = device.wait(device.game, label + " rotation")
+            state = device.wait(device.settled_game, label + " rotation")
             device.rotation(state[0])
             record(label + " renders and keeps help/rotation controls usable")
 
@@ -291,12 +373,7 @@ def main():
     except BaseException as failure:
         report["status"] = "failed"
         report["error"] = str(failure)
-        try:
-            device.capture("failure")
-            (args.output / "failure-crashes.txt").write_text(
-                device.adb("logcat", "-b", "crash", "-d", "-T", crash_since), encoding="utf-8")
-        except Exception:
-            pass
+        device.capture_failure(crash_since)
         raise
     finally:
         # All mutations are limited to an explicitly disposable, guarded test AVD.
