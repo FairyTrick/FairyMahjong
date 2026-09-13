@@ -32,8 +32,8 @@ graphics_features=()
 if [ "$api" = 36 ]; then memory=2560; fi
 if [ "$api" = 37 ]; then
   memory=4096
-  # The Linux 16 KiB guest graphics driver rejects direct-memory readback.
-  graphics_features=(-feature -GLDirectMem)
+  # The 16 KiB guest mapper requires the host's DMA readback capability.
+  graphics_features=(-feature GLDirectMem -feature HasSharedSlotsHostMemoryAllocator)
 fi
 "$ANDROID_HOME/emulator/emulator" -avd "$avd" -port 5556 -no-window -no-audio \
   -no-boot-anim -no-snapshot -gpu swiftshader -memory "$memory" -cores 2 -partition-size 4096 \
