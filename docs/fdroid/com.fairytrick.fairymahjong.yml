@@ -12,7 +12,8 @@ AutoName: Fairy Mahjong
 
 RepoType: git
 Repo: https://github.com/FairyTrick/FairyMahjong.git
-Binaries: https://github.com/FairyTrick/FairyMahjong/releases/download/v%v/FairyMahjong-%v.apk
+Binaries: 
+  https://github.com/FairyTrick/FairyMahjong/releases/download/v%v/FairyMahjong-%v.apk
 
 Builds:
   - versionName: 0.1.3
