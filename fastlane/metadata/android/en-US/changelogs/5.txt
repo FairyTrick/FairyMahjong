@@ -1,0 +1,3 @@
+Choose Easy, Normal or Hard with the new fairy difficulty button.
+Normal is more challenging, and Hard requires more use of the four-slot hand. Every new board has a winning route.
+Changing difficulty starts a new board. Your selection is saved between games.

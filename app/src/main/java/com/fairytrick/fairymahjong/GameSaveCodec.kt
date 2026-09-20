@@ -45,6 +45,7 @@ internal object GameSaveCodec {
             .put("picks", JSONArray(game.board.picks))
             .put("haptics", game.hapticsEnabled)
             .put("orientation", game.orientation.savedValue)
+            .put("difficulty", game.difficulty.name)
             .toString()
     }
 
@@ -87,12 +88,16 @@ internal object GameSaveCodec {
                 } else {
                     BoardOrientation.PORTRAIT
                 }
+                // This optional setting must never invalidate an otherwise playable saved board.
+                val savedDifficulty = json.opt("difficulty") as? String
+                val difficulty = GameDifficulty.values().firstOrNull { it.name == savedDifficulty }
                 // Replay validates every pick against the saved geometry and hand capacity.
                 DecodedSave(
                     game = SavedGame(
                         MahjongGame(board).snapshot(), json.getBoolean("haptics"), orientation,
+                        difficulty ?: GameDifficulty.NORMAL,
                     ),
-                    requiresRewrite = version < 5,
+                    requiresRewrite = version < 5 || difficulty == null,
                 )
             }
             else -> error("Unsupported save version")

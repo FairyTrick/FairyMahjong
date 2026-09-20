@@ -86,7 +86,8 @@ def main():
         return state
 
     def exact(state):
-        require(saved() == state, "Guide changed geometry, faces, picks, haptics, or orientation")
+        expected = dict(state, difficulty=state.get("difficulty", "NORMAL"))
+        require(saved() == expected, "Guide changed geometry, faces, picks, haptics, orientation, or difficulty")
 
     def ui_xml():
         remote = "/data/local/tmp/fairymahjong-instructions-ui.xml"
@@ -169,9 +170,19 @@ def main():
         other_orientation = "portrait" if state["orientation"] == "landscape" else "landscape"
         for label in (hint_label, "How to play", "Switch to " + other_orientation + " and start a new board", "New board"):
             image_button(nodes, label)
+        difficulty = state.get("difficulty", "NORMAL")
+        next_mode = {"EASY": "NORMAL", "NORMAL": "HARD", "HARD": "EASY"}[difficulty]
+        difficulty_description = f"Difficulty: {difficulty.title()}. Switch to {next_mode.title()} and start a new board"
+        difficulty_button = unique(nodes, resource="difficulty_button", description=difficulty_description,
+                                   class_name="android.widget.Button")
+        require(difficulty_button.get("clickable") == "true" and difficulty_button.get("enabled") == "true",
+                "Difficulty control is not available")
         require(sum(node.get("class") == "android.widget.ImageButton" and node.get("package") == args.package and
                     not TILE.match(node.get("content-desc", ""))
-                    for node in nodes) == 4, "Expected exactly four gameplay icon buttons")
+                    for node in nodes) == 4, "Expected four icon actions beside the difficulty button")
+        require(sum(node.get("package") == args.package and node.get("clickable") == "true" and
+                    not TILE.match(node.get("content-desc", ""))
+                    for node in nodes) == 5, "Expected exactly five gameplay controls")
         require(not any(node.get("text") in ("Play again", "Restart") or node.get("content-desc") == "Restart"
                         for node in nodes), "Removed Restart menu remains visible")
         return nodes, tiles
@@ -194,7 +205,7 @@ def main():
                         node.get("text", "").casefold() == "gentle haptics" for node in nodes),
                 "Removed haptics checkbox remains in the guide")
         require(not any(TILE.match(node.get("content-desc", "")) or
-                        node.get("content-desc", "").startswith(("Hand slot ", "Board status:", "Switch to ")) or
+                        node.get("content-desc", "").startswith(("Hand slot ", "Board status:", "Switch to ", "Difficulty:")) or
                         node.get("content-desc") in ("Hint", "Finding…", "Restart", "New board") or
                         (node.get("content-desc") == "How to play" and node.get("class") == "android.widget.ImageButton")
                         for node in nodes),
@@ -306,7 +317,7 @@ def main():
         portrait = {"version": 5, "layout": "instructions-preservation", "positions":
                     [[column * 2, row * 2, 0] for row in range(2) for column in range(4)],
                     "faces": [6, 23, 23, 6, 44, 61, 61, 44], "picks": [0],
-                    "haptics": False, "orientation": "portrait"}
+                    "haptics": False, "orientation": "portrait", "difficulty": "NORMAL"}
         replay(portrait)
         write_bytes(SAVE_PATHS[0], json.dumps(portrait).encode("utf-8"))
         launch()
@@ -356,7 +367,8 @@ def main():
 
         def landscape_ready():
             state = saved()
-            require(state["orientation"] == "landscape" and not state["picks"] and state["haptics"] == portrait["haptics"],
+            require(state["orientation"] == "landscape" and not state["picks"] and state["haptics"] == portrait["haptics"] and
+                    state["difficulty"] == portrait["difficulty"],
                     "Manual rotation has not produced a fresh landscape deal")
             visible, tiles = game_ui(state)
             return state, visible, tiles

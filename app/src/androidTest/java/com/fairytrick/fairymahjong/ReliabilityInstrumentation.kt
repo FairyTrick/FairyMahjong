@@ -20,6 +20,7 @@ class ReliabilityInstrumentation : Instrumentation() {
             PersistenceChecks.run(checks)
             InstructionsPreferenceChecks.run(checks)
             RenderingChecks.run(checks)
+            DifficultyChecks.run(checks)
         } catch (failure: Throwable) {
             checks.test("test suite setup") { throw failure }
         }

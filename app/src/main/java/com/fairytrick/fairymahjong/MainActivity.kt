@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     // Round-trip the retired setting for save compatibility; it no longer controls feedback.
     private var legacyHapticsSetting = true
     private var boardOrientation = BoardOrientation.PORTRAIT
+    private var difficulty = GameDifficulty.NORMAL
     private var instructionsOpen = false
     private var instructionsView: HowToPlayView? = null
     private var instructionsBackCallback: OnBackInvokedCallback? = null
@@ -69,6 +70,7 @@ class MainActivity : Activity() {
             game = MahjongGame(loaded.game.board)
             legacyHapticsSetting = loaded.game.hapticsEnabled
             boardOrientation = loaded.game.orientation
+            difficulty = loaded.game.difficulty
             applyOrientation()
             render()
             when {
@@ -99,12 +101,12 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         frame.addView(content, FrameLayout.LayoutParams(-1, -1))
-        controls = MeadowHudView(this, ::requestHint, ::startNewBoard, ::toggleOrientation, ::openInstructions)
+        controls = MeadowHudView(this, ::requestHint, ::startNewBoard, ::toggleOrientation, ::openInstructions, ::toggleDifficulty)
         board = GardenBoardView(this) { index -> pickTile(index) }
         motion = MeadowMotionView(this)
         boardViewport = null
         if (portrait) {
-            content.addView(controls.actionBar, LinearLayout.LayoutParams(-1, dp(MeadowHudView.ACTION_BAR_SIZE_DP)))
+            content.addView(controls.actionBar, LinearLayout.LayoutParams(-1, -2))
             val scroll = GardenBoardViewport(this)
             boardViewport = scroll
             scroll.setOnScrollChangeListener { _, _, _, _, _ -> cancelMotion() }
@@ -112,7 +114,7 @@ class MainActivity : Activity() {
             content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
             content.addView(controls, LinearLayout.LayoutParams(-1, -2))
         } else {
-            content.addView(controls.actionBar, LinearLayout.LayoutParams(dp(MeadowHudView.ACTION_BAR_SIZE_DP), -1))
+            content.addView(controls.actionBar, LinearLayout.LayoutParams(-2, -1))
             content.addView(board, LinearLayout.LayoutParams(0, -1, 1f))
             content.addView(controls, LinearLayout.LayoutParams(dp(MeadowHudView.SIDE_HAND_WIDTH_DP), -1))
         }
@@ -148,6 +150,16 @@ class MainActivity : Activity() {
             if (params.bottomMargin != margin) {
                 params.bottomMargin = margin
                 notices.layoutParams = params
+            }
+        }
+        controls.actionBar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (!portrait) {
+                val params = notices.layoutParams as FrameLayout.LayoutParams
+                val margin = dp(24) + controls.actionBar.width
+                if (params.leftMargin != margin) {
+                    params.leftMargin = margin
+                    notices.layoutParams = params
+                }
             }
         }
         frame.addView(motion, FrameLayout.LayoutParams(-1, -1))
@@ -306,7 +318,7 @@ class MainActivity : Activity() {
         if (game == null || !resumed || instructionsOpen || !hasWindowFocus()) return
         cancelMotion()
         invalidateHint()
-        game = MahjongGame.newGame(orientation = boardOrientation)
+        game = MahjongGame.newGame(orientation = boardOrientation, difficulty = difficulty)
         boardViewport?.scrollTo(0, 0)
         render()
         persist()
@@ -318,11 +330,23 @@ class MainActivity : Activity() {
         cancelMotion()
         invalidateHint()
         boardOrientation = boardOrientation.toggled()
-        game = MahjongGame.newGame(orientation = boardOrientation)
+        game = MahjongGame.newGame(orientation = boardOrientation, difficulty = difficulty)
         persist()
         haptics.play(controls.rotateButton, GameHapticEvent.DEAL)
         render()
         applyOrientation()
+    }
+
+    private fun toggleDifficulty() {
+        if (game == null || !resumed || instructionsOpen || !hasWindowFocus()) return
+        cancelMotion()
+        invalidateHint()
+        difficulty = difficulty.next()
+        game = MahjongGame.newGame(orientation = boardOrientation, difficulty = difficulty)
+        boardViewport?.scrollTo(0, 0)
+        render()
+        persist()
+        haptics.play(controls.difficultyButton, GameHapticEvent.DEAL)
     }
 
     private fun applyOrientation() {
@@ -346,7 +370,7 @@ class MainActivity : Activity() {
     private fun render() {
         val current = game ?: return
         board.render(current, activeHint)
-        controls.render(current, activeHint, findingHint, boardOrientation)
+        controls.render(current, activeHint, findingHint, boardOrientation, difficulty)
         message.text = when {
             current.isComplete -> getString(R.string.board_complete)
             current.isGameOver -> getString(R.string.hand_full)
@@ -471,7 +495,7 @@ class MainActivity : Activity() {
     private fun persist() {
         val snapshot = game?.snapshot() ?: return
         val request = ++saveRequest
-        store.save(SavedGame(snapshot, legacyHapticsSetting, boardOrientation)) { succeeded ->
+        store.save(SavedGame(snapshot, legacyHapticsSetting, boardOrientation, difficulty)) { succeeded ->
             if (isDestroyed || isFinishing || request != saveRequest) return@save
             if (succeeded) saveMessage.visibility = View.GONE else showSaveError()
         }

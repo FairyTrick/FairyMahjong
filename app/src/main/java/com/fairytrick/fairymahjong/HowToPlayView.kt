@@ -42,6 +42,7 @@ internal class HowToPlayView(
             addContent(controlRule(R.drawable.meadow_hint_v1, R.string.instructions_hint_rule), 12)
             addContent(controlRule(R.drawable.meadow_regenerate_v2, R.string.instructions_restart_rule), 8)
             addContent(controlRule(R.drawable.meadow_rotate_v1, R.string.instructions_rotate_rule), 8)
+            addContent(controlRule(R.drawable.meadow_difficulty_normal_v2, R.string.instructions_difficulty_rule), 8)
         }, panelParams(first = true))
         panels.addView(panel(R.id.instructions_pairs_panel, R.string.instructions_pairs_heading, closeCorner = landscape) {
             addContent(copy(R.string.instructions_hand_rule), 10)
@@ -101,7 +102,8 @@ internal class HowToPlayView(
         gravity = Gravity.CENTER_VERTICAL
         addView(ImageView(context).apply {
             // Share the HUD's sampled pixels instead of decoding a full-size PNG for the guide.
-            setImageDrawable(MeadowSpriteDrawable(context, art))
+            setImageDrawable(if (art == R.drawable.meadow_difficulty_normal_v2) DifficultyFaceDrawable(context, interactive = false)
+                else MeadowSpriteDrawable(context, art))
             scaleType = ImageView.ScaleType.FIT_CENTER
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(if (landscape) 34 else 38), dp(if (landscape) 34 else 38)).apply { marginEnd = dp(10) })

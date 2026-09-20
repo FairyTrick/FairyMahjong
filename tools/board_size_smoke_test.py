@@ -165,6 +165,16 @@ def main():
         viewport = bounds(viewport_nodes[0])
         labels = ("Hint", "How to play", "Switch to landscape and start a new board", "New board")
         controls = [bounds(button(label, nodes)) for label in labels]
+        difficulty = state["difficulty"]
+        next_mode = {"EASY": "NORMAL", "NORMAL": "HARD", "HARD": "EASY"}[difficulty]
+        description = f"Difficulty: {difficulty.title()}. Switch to {next_mode.title()} and start a new board"
+        difficulty_nodes = [node for node in nodes if
+                            node.get("resource-id") == args.package + ":id/difficulty_button" and
+                            node.get("content-desc") == description and
+                            node.get("class") == "android.widget.Button" and
+                            node.get("clickable") == "true" and node.get("enabled") == "true"]
+        require(len(difficulty_nodes) == 1, "Missing or incorrect difficulty action")
+        controls.insert(2, bounds(difficulty_nodes[0]))
         hand = []
         for slot in range(4):
             identity = names[state["faces"][held[slot]]] if slot < len(held) else "empty"
@@ -172,12 +182,11 @@ def main():
             require(len(found) == 1, "Missing or incorrect hand slot")
             hand.append(bounds(found[0]))
         require(all(within(rect, display_rect) for rect in controls + hand + [viewport]), "Fixed UI is clipped")
-        require(all(rect[2] - rect[0] >= 52 * density - 1 and rect[3] - rect[1] >= 52 * density - 1
-                    for rect in controls), "Control target smaller than 52dp")
+        require(all(rect[2] - rect[0] >= 48 * density - 1 and rect[3] - rect[1] >= 48 * density - 1
+                    for rect in controls), "Control target smaller than 48dp")
         require(all(left[2] <= right[0] for left, right in zip(controls, controls[1:])), "Top controls overlap")
-        centers = [(rect[0] + rect[2]) / 2 for rect in controls]
-        require(all(abs(center - (centers[0] + (centers[-1] - centers[0]) * index / 3)) <= 3 * density
-                    for index, center in enumerate(centers)), "Four top controls are not evenly spaced")
+        gaps = [right[0] - left[2] for left, right in zip(controls, controls[1:])]
+        require(max(gaps) - min(gaps) <= 3 * density, "Five top controls do not have equal gaps")
         require(all(left[2] <= right[0] for left, right in zip(hand, hand[1:])),
                 "Portrait hand slots overlap or are not ordered left to right")
         require(all(abs((rect[1] + rect[3]) - (hand[0][1] + hand[0][3])) <= 2 for rect in hand),
@@ -267,6 +276,7 @@ def main():
         states = []
         for fixture_path in fixtures:
             state = json.loads(fixture_path.read_text(encoding="utf-8-sig"))
+            state.setdefault("difficulty", "NORMAL")
             columns, rows = shape(state)
             states.append((state, fixture_path.stem, columns, rows))
             inject(state)

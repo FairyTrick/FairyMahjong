@@ -37,6 +37,7 @@ internal fun meadowControl(context: Context, label: Int, artwork: Int, action: (
 class MeadowHudView @JvmOverloads constructor(
     context: Context, onHint: () -> Unit = {}, onNewBoard: () -> Unit = {}, onRotate: () -> Unit = {},
     onInstructions: () -> Unit = {},
+    onDifficulty: () -> Unit = {},
 ) : ViewGroup(context) {
     val hintButton = meadowControl(context, R.string.hint, R.drawable.meadow_hint_v1, onHint)
     val newBoardButton = meadowControl(context, R.string.new_board, R.drawable.meadow_regenerate_v2, onNewBoard)
@@ -44,21 +45,79 @@ class MeadowHudView @JvmOverloads constructor(
     val instructionsButton = meadowControl(context, R.string.instructions_title, R.drawable.meadow_instructions_v1, onInstructions).apply {
         id = R.id.instructions_button
     }
-    val actionBar = object : FrameLayout(context) {
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+    val difficultyButton = DifficultyControl(context, onDifficulty)
+    val actionBar = object : ViewGroup(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val vertical = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            var length = 0
+            var thickness = dp(ACTION_BAR_SIZE_DP)
             for (index in 0 until childCount) {
                 val child = getChildAt(index)
-                val fraction = index.toFloat() / (childCount - 1)
-                val x = ((width - child.measuredWidth) * if (vertical) .5f else fraction).roundToInt()
-                val y = ((height - child.measuredHeight) * if (vertical) fraction else .5f).roundToInt()
+                // Let Android measure the difficulty label at the user's font size.
+                // The cross-axis grows to fit it instead of shrinking text into the icon.
+                child.measure(
+                    if (child.layoutParams.width >= 0) exact(child.layoutParams.width) else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                    if (child.layoutParams.height >= 0) exact(child.layoutParams.height) else MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                )
+                length += if (vertical) child.measuredHeight else child.measuredWidth
+                thickness = maxOf(thickness, (if (vertical) child.measuredWidth else child.measuredHeight) + dp(4))
+            }
+            val axisSpec = if (vertical) heightMeasureSpec else widthMeasureSpec
+            if (MeasureSpec.getMode(axisSpec) != MeasureSpec.UNSPECIFIED && length > MeasureSpec.getSize(axisSpec)) {
+                // Short landscape windows still need room for enlarged text. Trim only
+                // the four unlabelled icons, retaining Android's 48dp touch minimum.
+                val overflow = length - MeasureSpec.getSize(axisSpec)
+                val iconCount = (0 until childCount).count { getChildAt(it) !== difficultyButton }
+                val reduction = (overflow + iconCount - 1) / iconCount.coerceAtLeast(1)
+                for (index in 0 until childCount) {
+                    val child = getChildAt(index)
+                    if (child !== difficultyButton) {
+                        val oldLength = if (vertical) child.measuredHeight else child.measuredWidth
+                        val size = (oldLength - reduction).coerceAtLeast(dp(48))
+                        child.measure(exact(size), exact(size))
+                        length -= oldLength - size
+                    }
+                }
+                if (length > MeasureSpec.getSize(axisSpec)) {
+                    // On a short screen, keep the enlarged badge and its lettering together
+                    // inside the remaining space after preserving the other touch targets.
+                    val oldSize = if (vertical) difficultyButton.measuredHeight else difficultyButton.measuredWidth
+                    val size = (MeasureSpec.getSize(axisSpec) - (length - oldSize)).coerceAtLeast(dp(48))
+                    difficultyButton.measure(exact(size), exact(size))
+                    length += size - oldSize
+                }
+                thickness = maxOf(dp(ACTION_BAR_SIZE_DP), (0 until childCount).maxOf {
+                    val child = getChildAt(it)
+                    (if (vertical) child.measuredWidth else child.measuredHeight) + dp(4)
+                })
+            }
+            setMeasuredDimension(
+                resolveSize(if (vertical) thickness else length, widthMeasureSpec),
+                resolveSize(if (vertical) length else thickness, heightMeasureSpec),
+            )
+        }
+
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val vertical = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val length = (0 until childCount).sumOf {
+                val child = getChildAt(it)
+                if (vertical) child.measuredHeight else child.measuredWidth
+            }
+            val space = ((if (vertical) height else width) - length).coerceAtLeast(0)
+            val gap = if (childCount > 1) space.toFloat() / (childCount - 1) else 0f
+            var position = 0f
+            for (index in 0 until childCount) {
+                val child = getChildAt(index)
+                val x = if (vertical) (width - child.measuredWidth) / 2 else position.roundToInt()
+                val y = if (vertical) position.roundToInt() else dp(2)
                 child.layout(x, y, x + child.measuredWidth, y + child.measuredHeight)
+                position += (if (vertical) child.measuredHeight else child.measuredWidth) + gap
             }
         }
     }.apply {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
-        listOf(hintButton, instructionsButton, rotateButton, newBoardButton).forEach {
-            addView(it, FrameLayout.LayoutParams(dp(52), dp(52)))
+        listOf(hintButton, instructionsButton, difficultyButton, rotateButton, newBoardButton).forEach {
+            addView(it, if (it === difficultyButton) LayoutParams(-2, -2) else LayoutParams(dp(52), dp(52)))
             it.isEnabled = false
         }
     }
@@ -73,12 +132,15 @@ class MeadowHudView @JvmOverloads constructor(
         addView(hand)
     }
 
-    fun render(game: MahjongGame, hint: GameHint?, findingHint: Boolean, orientation: BoardOrientation) {
+    fun render(game: MahjongGame, hint: GameHint?, findingHint: Boolean, orientation: BoardOrientation,
+        difficulty: GameDifficulty = GameDifficulty.NORMAL) {
         hand.render(game, hint)
         hintButton.isEnabled = !findingHint && !game.isComplete && !game.isGameOver
         hintButton.contentDescription = context.getString(if (findingHint) R.string.hint_working else R.string.hint)
         newBoardButton.isEnabled = true
         instructionsButton.isEnabled = true
+        difficultyButton.isEnabled = true
+        difficultyButton.render(difficulty)
         val landscape = orientation == BoardOrientation.LANDSCAPE
         val rotationLabel = context.getString(if (landscape) R.string.rotate_portrait else R.string.rotate_landscape)
         rotateButton.contentDescription = rotationLabel

@@ -29,6 +29,7 @@ internal object PersistenceChecks {
             GameSnapshot(listOf(6, 7, 6, 7), listOf(0, 1, 2), square),
             hapticsEnabled = false,
             orientation = BoardOrientation.LANDSCAPE,
+            difficulty = GameDifficulty.HARD,
         )
         fun rejectsWithoutVmError(block: () -> Unit) {
             val failure = runCatching(block).exceptionOrNull()
@@ -44,12 +45,49 @@ internal object PersistenceChecks {
                 check(restored.hand == listOf(1) && restored.matchedPairCount == 1)
             }
 
+            checks.test("all difficulty settings survive save and reload in either orientation") {
+                for (difficulty in GameDifficulty.values()) {
+                    for (orientation in BoardOrientation.values()) {
+                        val source = original.copy(difficulty = difficulty, orientation = orientation)
+                        val directory = directory()
+                        saveFile(directory).writeText(GameSaveCodec.encode(source))
+                        val restored = load(checks.onMain { GameStore(directory) })
+                        check(restored.game == source)
+                        check(!restored.recoveredUnreadableSave && !restored.migratedLegacySave)
+                    }
+                }
+            }
+
+            checks.test("version five saves without difficulty retain their board and default to normal") {
+                val directory = directory()
+                val older = JSONObject(GameSaveCodec.encode(original)).apply { remove("difficulty") }
+                check(older.getInt("version") == 5)
+                saveFile(directory).writeText(older.toString())
+                val expected = original.copy(difficulty = GameDifficulty.NORMAL)
+                val restored = load(checks.onMain { GameStore(directory) })
+                check(restored.game == expected && restored.saveAvailable)
+                check(!restored.recoveredUnreadableSave && !restored.migratedLegacySave)
+                val rewritten = JSONObject(saveFile(directory).readText())
+                check(rewritten.getString("difficulty") == "NORMAL")
+                check(GameSaveCodec.decode(rewritten.toString()).let { it.game == expected && !it.requiresRewrite })
+            }
+
+            checks.test("invalid optional difficulty falls back without losing saved progress") {
+                for (value in listOf(JSONObject.NULL, "UNKNOWN", 1, true, JSONArray(), JSONObject())) {
+                    val encoded = JSONObject(GameSaveCodec.encode(original)).put("difficulty", value)
+                    val decoded = GameSaveCodec.decode(encoded.toString())
+                    check(decoded.game == original.copy(difficulty = GameDifficulty.NORMAL))
+                    check(decoded.requiresRewrite && !decoded.migratedLegacySave)
+                }
+            }
+
             checks.test("legacy garden save versions preserve accepted picks through current rewrite") {
                 val deal = MahjongGame.generateDeal(502L, BoardStyles.garden)
                 for (version in 2..4) {
                     val source = SavedGame(deal.snapshot.copy(picks = deal.solution.take(5)), false)
                     val json = JSONObject(GameSaveCodec.encode(source)).put("version", version)
                     json.remove("orientation")
+                    json.remove("difficulty")
                     if (version < 4) json.remove("positions")
                     val decoded = GameSaveCodec.decode(json.toString())
                     check(decoded.game == source)

@@ -23,12 +23,17 @@ def focused_device():
     return device
 
 
-def board(bounds="[10,10][50,50]", description="Fern tile, 1 of 48, available"):
+def board(bounds="[10,10][50,50]", description="Fern tile, 1 of 48, available", difficulty="Normal"):
     button = ET.Element("node", {"content-desc": "How to play", "clickable": "true",
                                   "enabled": "true", "bounds": bounds})
     tile = ET.Element("node", {"content-desc": description, "clickable": "true",
                                 "enabled": "true", "bounds": "[100,100][150,180]"})
-    return [button, tile], {1: tile}
+    difficulty_button = ET.Element("node", {
+        "resource-id": suite.PACKAGE + ":id/difficulty_button", "class": "android.widget.Button",
+        "clickable": "true", "enabled": "true", "bounds": "[60,10][100,50]",
+        "content-desc": f"Difficulty: {difficulty}. Switch to {suite.NEXT_DIFFICULTY[difficulty]} and start a new board",
+    })
+    return [button, tile, difficulty_button], {1: tile}
 
 
 def guide(panel_bounds="[0,0][200,400]"):
@@ -57,6 +62,37 @@ class LayoutSynchronization(unittest.TestCase):
         device.game = Mock(side_effect=[board(), board(description="Teal tile, 1 of 48, available")])
         with self.assertRaisesRegex(AssertionError, "layout is still changing"):
             device.settled_game()
+
+    def test_persistence_fingerprint_detects_reset_difficulty_with_identical_board(self):
+        device = focused_device()
+        hard, normal = board(difficulty="Hard"), board(difficulty="Normal")
+        self.assertEqual(device.fingerprint(hard)["tiles"], device.fingerprint(normal)["tiles"])
+        self.assertNotEqual(device.fingerprint(hard), device.fingerprint(normal))
+        device.game = Mock(side_effect=[hard, normal])
+        with self.assertRaisesRegex(AssertionError, "layout is still changing"):
+            device.settled_game()
+
+    def test_difficulty_requires_one_enabled_button_with_the_correct_next_action(self):
+        device = focused_device()
+        for mode in ("Easy", "Normal", "Hard"):
+            nodes, _ = board(difficulty=mode)
+            control = device.difficulty(nodes, mode)
+            with self.assertRaisesRegex(AssertionError, "Expected difficulty"):
+                device.difficulty(nodes, suite.NEXT_DIFFICULTY[mode])
+            with self.assertRaisesRegex(AssertionError, "unique difficulty"):
+                device.difficulty(nodes + [control])
+            for attribute, bad_value in (("enabled", "false"), ("clickable", "false"),
+                                         ("class", "android.view.View")):
+                original = control.get(attribute)
+                control.set(attribute, bad_value)
+                with self.assertRaisesRegex(AssertionError, "unavailable"):
+                    device.difficulty(nodes)
+                control.set(attribute, original)
+            control.set("content-desc", f"Difficulty: {mode}. Switch to {mode} and start a new board")
+            with self.assertRaisesRegex(AssertionError, "incorrect state or next action"):
+                device.difficulty(nodes)
+        with self.assertRaisesRegex(AssertionError, "unique difficulty"):
+            device.difficulty([])
 
     def test_guide_waits_for_panel_bounds_even_when_close_control_does_not_move(self):
         device = focused_device()

@@ -366,12 +366,14 @@ object BoardGenerator {
      * This guarantees a solution, not a specified number of safe alternative moves.
      * A bounded opening adjustment can remove one ready pair without raising witness occupancy
      * or changing the remaining board and hand after the first sixteen witness picks.
+     * Hard can reserve two crossed pairs in stacked columns, requiring some buffer use.
      */
     fun generate(
         seed: Long,
         faceCount: Int,
         shape: BoardShape? = null,
         maxUnmatched: Int = 3,
+        preferBufferPlay: Boolean = false,
     ): GeneratedBoard {
         require(maxUnmatched in 1..3) { "The winning route may hold one to three unmatched tiles" }
         val random = Random(seed)
@@ -379,27 +381,109 @@ object BoardGenerator {
         val pairCount = selectedShape.positions.size / 2
         require(faceCount in 1..pairCount) { "Each active face needs at least one pair" }
         val solution = selectedShape.geometry.removalOrder(random)
-        val remainderFaces = (0 until faceCount).shuffled(random).take(pairCount % faceCount).toSet()
-        val remaining = IntArray(faceCount) { 2 * (pairCount / faceCount + if (it in remainderFaces) 1 else 0) }
+        val forced = if (preferBufferPlay && maxUnmatched == 3 && faceCount >= 3) {
+            bufferGate(selectedShape, random)
+        } else null
+        val reservedFaces = if (forced == null) 0 else 2
+        val ordinaryFaces = faceCount - reservedFaces
+        val ordinaryPairs = pairCount - reservedFaces
+        val remainderFaces = (reservedFaces until faceCount).shuffled(random)
+            .take(ordinaryPairs % ordinaryFaces).toSet()
+        val remaining = IntArray(faceCount) {
+            if (it < reservedFaces) 2
+            else 2 * (ordinaryPairs / ordinaryFaces + if (it in remainderFaces) 1 else 0)
+        }
+        val limits = ordinaryHandLimits(solution, forced, maxUnmatched)
         val held = BooleanArray(faceCount)
         var heldCount = 0
+        var ordinaryHeld = 0
         val faces = IntArray(selectedShape.positions.size)
         val candidates = IntArray(faceCount)
-        solution.forEach { index ->
-            var candidateCount = 0
-            for (face in 0 until faceCount) {
-                if (remaining[face] > 0 && (held[face] || heldCount < maxUnmatched)) {
-                    candidates[candidateCount++] = face
+        solution.forEachIndexed { step, index ->
+            val forcedFace = forced?.get(index) ?: -1
+            val face = if (forcedFace >= 0) forcedFace else {
+                var candidateCount = 0
+                for (face in reservedFaces until faceCount) {
+                    if (remaining[face] > 0 && (held[face] || ordinaryHeld < limits[step])) {
+                        candidates[candidateCount++] = face
+                    }
                 }
+                check(candidateCount > 0) { "Even face counts always permit a completion" }
+                candidates[random.nextInt(candidateCount)]
             }
-            check(candidateCount > 0) { "Even face counts always permit a completion" }
-            val face = candidates[random.nextInt(candidateCount)]
             faces[index] = face
             remaining[face] -= 1
             held[face] = !held[face]
-            heldCount += if (held[face]) 1 else -1
+            val change = if (held[face]) 1 else -1
+            heldCount += change
+            if (face >= reservedFaces) ordinaryHeld += change
+            check(heldCount <= maxUnmatched) { "Winning route exceeds its hand limit" }
         }
         check(heldCount == 0)
-        return OpeningPairBalance.adjust(GeneratedBoard(selectedShape, faces.toList(), solution))
+        val board = GeneratedBoard(selectedShape, faces.toList(), solution)
+        return if (forced == null) OpeningPairBalance.adjust(board) else board
+    }
+
+    /** Reserve room before a forced pick; each intervening ordinary pick can close one face. */
+    private fun ordinaryHandLimits(solution: List<Int>, forced: IntArray?, cap: Int): IntArray {
+        val limits = IntArray(solution.size) { cap }
+        if (forced == null) return limits
+        val held = BooleanArray(2)
+        var count = 0
+        solution.forEachIndexed { step, index ->
+            val face = forced[index]
+            if (face >= 0) {
+                held[face] = !held[face]
+                count += if (held[face]) 1 else -1
+            }
+            limits[step] -= count
+        }
+        for (step in solution.lastIndex - 1 downTo 0) {
+            val canCloseNext = if (forced[solution[step + 1]] < 0) 1 else 0
+            limits[step] = minOf(limits[step], limits[step + 1] + canCloseNext)
+        }
+        return limits
+    }
+
+    /** A-over-B and B-over-A, each with only two copies, cannot clear one pair at a time. */
+    private fun bufferGate(shape: BoardShape, random: Random): IntArray? {
+        val positions = shape.positions
+        val columns = positions.indices.mapNotNull { upper ->
+            val tile = positions[upper]
+            val lower = positions.indexOfFirst { other ->
+                other.layer == tile.layer - 1 &&
+                    abs(other.x2.toLong() - tile.x2) < 2 && abs(other.y2.toLong() - tile.y2) < 2
+            }
+            if (lower >= 0) upper to lower else null
+        }
+        fun crossed(first: Pair<Int, Int>, second: Pair<Int, Int>) = IntArray(positions.size) { -1 }.also {
+            it[first.first] = 0
+            it[second.second] = 0
+            it[second.first] = 1
+            it[first.second] = 1
+        }
+
+        // Prefer a two-slot detour that can be completed immediately from the opening.
+        val onBoard = BooleanArray(positions.size) { true }
+        val exposed = columns.filter { shape.geometry.isFree(it.first, onBoard) }.shuffled(random)
+        for (first in exposed) for (second in exposed) {
+            if (first.first == second.first || first.second == second.second ||
+                positions[first.first].layer != positions[second.first].layer
+            ) continue
+            onBoard[first.first] = false
+            onBoard[second.first] = false
+            val ready = shape.geometry.isFree(first.second, onBoard) && shape.geometry.isFree(second.second, onBoard)
+            onBoard[first.first] = true
+            onBoard[second.first] = true
+            if (ready) return crossed(first, second)
+        }
+        for (layer in 3 downTo 1) {
+            val pairs = columns.filter { positions[it.first].layer == layer }.shuffled(random)
+            val first = pairs.firstOrNull() ?: continue
+            val second = pairs.firstOrNull { it.second != first.second } ?: continue
+            return crossed(first, second)
+        }
+        // Flat/small custom shapes can still use fewer duplicates without a stacked gate.
+        return null
     }
 }

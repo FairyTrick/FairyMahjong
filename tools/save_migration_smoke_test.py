@@ -228,7 +228,8 @@ def main():
     def expect_state(expected, notice=None):
         def check():
             current = saved()
-            require(current == expected, "Restored save changed faces, picks, positions or preferences")
+            require(current == dict(expected, difficulty=expected.get("difficulty", "NORMAL")),
+                    "Restored save changed faces, picks, positions or preferences")
             return check_ui(current, notice)
         return wait_for(check, "exact restored save and UI")
 

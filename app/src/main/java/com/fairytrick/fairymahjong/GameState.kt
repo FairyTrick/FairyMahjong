@@ -103,13 +103,15 @@ class MahjongGame(snapshot: GameSnapshot) {
             seed: Long = System.nanoTime(),
             shape: BoardShape? = null,
             orientation: BoardOrientation = BoardOrientation.PORTRAIT,
-        ): MahjongGame = MahjongGame(generateDeal(seed, shape, orientation).snapshot)
+            difficulty: GameDifficulty = GameDifficulty.NORMAL,
+        ): MahjongGame = MahjongGame(generateDeal(seed, shape, orientation, difficulty).snapshot)
 
         /** The returned witness uses the same geometry and four-slot rules as live play. */
         internal fun generateDeal(
             seed: Long,
             shape: BoardShape? = null,
             orientation: BoardOrientation = BoardOrientation.PORTRAIT,
+            difficulty: GameDifficulty = GameDifficulty.NORMAL,
         ): SolvableDeal {
             val random = Random(seed)
             val styles = when (orientation) {
@@ -120,7 +122,8 @@ class MahjongGame(snapshot: GameSnapshot) {
             val pairCount = selectedShape.positions.size / 2
             val desiredFaces = if (selectedShape.positions.size < 64) random.nextInt(10, 15)
                 else random.nextInt(12, 17)
-            val activeFaces = minOf(desiredFaces, pairCount)
+            // Each step adds three identities, leaving repeated pairs in every mode.
+            val activeFaces = (desiredFaces + difficulty.faceCountAdjustment).coerceIn(1, pairCount)
 
             // Prefer different silhouettes and color families before another image of a fairy.
             // Every variant gets an equal chance within its family, including all belongings.
@@ -133,8 +136,11 @@ class MahjongGame(snapshot: GameSnapshot) {
                 }
             }.take(activeFaces)
 
-            val generated = BoardGenerator.generate(random.nextLong(), activeFaces, selectedShape)
-            // A one-to-one relabeling preserves balanced pair counts and the winning route.
+            val generated = BoardGenerator.generate(
+                random.nextLong(), activeFaces, selectedShape,
+                preferBufferPlay = difficulty == GameDifficulty.HARD,
+            )
+            // A one-to-one relabeling preserves pair counts and the winning route.
             return SolvableDeal(
                 GameSnapshot(generated.faces.map { selectedFaces[it] }, shape = generated.shape),
                 generated.solution,

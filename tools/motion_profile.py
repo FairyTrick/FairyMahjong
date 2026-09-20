@@ -135,6 +135,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     state = json.loads(args.fixture.read_text(encoding="utf-8"))
     state.update(version=5, orientation="portrait", picks=[], haptics=False)
+    state.setdefault("difficulty", "NORMAL")
     replay(state)
     picks = pick_sequence(state, args.picks)
     expected = dict(state, picks=picks)

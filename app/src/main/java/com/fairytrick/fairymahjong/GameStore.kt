@@ -13,6 +13,7 @@ data class SavedGame(
     // Retired preference, retained only to round-trip older saves. Runtime haptics are always enabled.
     val hapticsEnabled: Boolean = true,
     val orientation: BoardOrientation = BoardOrientation.PORTRAIT,
+    val difficulty: GameDifficulty = GameDifficulty.NORMAL,
 )
 
 data class LoadedGame(

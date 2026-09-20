@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="board_viewport" type="id" />
+    <item name="difficulty_button" type="id" />
+    <string name="difficulty_easy">Easy</string>
+    <string name="difficulty_normal">Normal</string>
+    <string name="difficulty_hard">Hard</string>
+    <string name="difficulty_action">Difficulty: %1$s. Switch to %2$s and start a new board</string>
     <string name="app_name">Fairy Mahjong</string>
     <string name="opening_garden">Opening your garden…</string>
     <string name="new_board">New board</string>

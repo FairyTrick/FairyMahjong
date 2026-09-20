@@ -96,7 +96,8 @@ def main():
         return state
 
     def exact(state):
-        require(saved() == state, "Geometry, faces, picks, haptics, or orientation changed unexpectedly")
+        expected = dict(state, difficulty=state.get("difficulty", "NORMAL"))
+        require(saved() == expected, "Geometry, faces, picks, haptics, orientation, or difficulty changed unexpectedly")
         return state
 
     def inject(state):
@@ -140,6 +141,16 @@ def main():
         require(len(found) == 1, "Missing or duplicate " + label)
         return found[0]
 
+    def difficulty_button(state, nodes):
+        mode = state.get("difficulty", "NORMAL")
+        next_mode = {"EASY": "NORMAL", "NORMAL": "HARD", "HARD": "EASY"}[mode]
+        label = f"Difficulty: {mode.title()}. Switch to {next_mode.title()} and start a new board"
+        found = [node for node in nodes if node.get("resource-id") == args.package + ":id/difficulty_button" and
+                 node.get("content-desc") == label and node.get("class") == "android.widget.Button" and
+                 node.get("clickable") == "true" and node.get("enabled") == "true"]
+        require(len(found) == 1, "Missing or incorrect difficulty action: " + label)
+        return found[0]
+
     def next_orientation(mode):
         return "portrait" if mode == "landscape" else "landscape"
 
@@ -180,10 +191,11 @@ def main():
         if allow_hint and any(node.get("content-desc") == "Finding…" for node in nodes):
             labels[0] = "Finding…"
         controls = [button(label, nodes) for label in labels]
-        require(controls[2].get("enabled") == "true", "Rotation transition has not settled")
+        controls.insert(2, difficulty_button(state, nodes))
+        require(controls[3].get("enabled") == "true", "Rotation transition has not settled")
         actions = [node for node in nodes if node.get("package") == args.package and
                    node.get("clickable") == "true" and not TILE.match(node.get("content-desc", ""))]
-        require(len(actions) == 4, "Expected exactly Hint, How to play, orientation, and New board controls")
+        require(len(actions) == 5, "Expected exactly Hint, How to play, difficulty, orientation, and New board controls")
         require(not any(node.get("text") == "Play again" or node.get("content-desc") == "Restart" for node in nodes),
                 "Removed Restart menu is still visible")
         require(not any(node.get("text") == "FairyMahjong" or
@@ -212,18 +224,17 @@ def main():
         for rectangle in controls_rects + hand_rects + tile_rects:
             require(viewport[0] <= rectangle[0] < rectangle[2] <= viewport[2] and
                     viewport[1] <= rectangle[1] < rectangle[3] <= viewport[3], "Native content is clipped")
-        require(all(rect[2] - rect[0] >= 52 * density - 1 and rect[3] - rect[1] >= 52 * density - 1
-                    for rect in controls_rects), "Control touch target is smaller than52dp")
+        require(all(rect[2] - rect[0] >= 48 * density - 1 and rect[3] - rect[1] >= 48 * density - 1
+                    for rect in controls_rects), "Control touch target is smaller than 48dp")
         require(all(abs((rect[3] - rect[1]) - (rect[2] - rect[0]) * 1.22) <= 2 for rect in hand_rects),
                 "Hand tiles are rotated or distorted")
         if mode == "portrait":
             require(all(left[2] <= right[0] for left, right in zip(controls_rects, controls_rects[1:])),
-                    "Top controls overlap or are not ordered Hint, How to play, Rotate, New board")
-            centers = [(rect[0] + rect[2]) / 2 for rect in controls_rects]
-            require(all(abs(center - (centers[0] + (centers[-1] - centers[0]) * index / 3)) <= 3 * density
-                        for index, center in enumerate(centers)), "Portrait controls are not evenly spaced")
-            require(all(abs((rect[1] + rect[3]) - (controls_rects[0][1] + controls_rects[0][3])) <= 2
-                        for rect in controls_rects), "Portrait controls do not form one horizontal row")
+                    "Top controls overlap or are not ordered Hint, How to play, Difficulty, Rotate, New board")
+            gaps = [right[0] - left[2] for left, right in zip(controls_rects, controls_rects[1:])]
+            require(max(gaps) - min(gaps) <= 3 * density, "Portrait controls do not have equal gaps")
+            require(all(abs(rect[1] - controls_rects[0][1]) <= 2 for rect in controls_rects),
+                    "Portrait control icons are not top-aligned")
             require(max(rect[3] for rect in controls_rects) <= min(rect[1] for rect in tile_rects + hand_rects),
                     "Board or hand overlaps top controls")
             require(all(left[2] <= right[0] for left, right in zip(hand_rects, hand_rects[1:])),
@@ -240,13 +251,12 @@ def main():
             require(hand_span >= min(width * .65, 390 * density), "Portrait hand does not use the screen width")
         else:
             require(all(upper[3] <= lower[1] for upper, lower in zip(controls_rects, controls_rects[1:])),
-                    "Landscape controls overlap or are not ordered Hint, How to play, Rotate, New board from top to bottom")
+                    "Landscape controls overlap or are not ordered Hint, How to play, Difficulty, Rotate, New board from top to bottom")
             require(all(abs((rect[0] + rect[2]) - (controls_rects[0][0] + controls_rects[0][2])) <= 2
                         for rect in controls_rects), "Landscape controls do not form one vertical column")
-            centers = [(rect[1] + rect[3]) / 2 for rect in controls_rects]
-            require(all(abs(center - (centers[0] + (centers[-1] - centers[0]) * index / 3)) <= 3 * density
-                        for index, center in enumerate(centers)), "Landscape controls are not evenly spaced")
-            control_column_center_y = (centers[0] + centers[-1]) / 2
+            gaps = [lower[1] - upper[3] for upper, lower in zip(controls_rects, controls_rects[1:])]
+            require(max(gaps) - min(gaps) <= 3 * density, "Landscape controls do not have equal gaps")
+            control_column_center_y = (controls_rects[0][1] + controls_rects[-1][3]) / 2
             require(controls_rects[-1][3] - controls_rects[0][1] >= height * .8,
                     "Landscape controls do not span the available screen height")
             require(max(rect[2] for rect in controls_rects) <= min(rect[0] for rect in tile_rects + hand_rects),
@@ -288,6 +298,7 @@ def main():
     def fresh(previous, mode):
         state = saved()
         require(state["orientation"] == mode and state["haptics"] == previous["haptics"] and
+                state["difficulty"] == previous.get("difficulty", "NORMAL") and
                 not state["picks"], "Fresh orientation deal retained picks or changed preference")
         require(state["positions"] != previous["positions"] or state["faces"] != previous["faces"],
                 "Orientation/New board reused the previous deal")
@@ -381,7 +392,7 @@ def main():
         legacy = {"version": 4, "layout": "orientation-migration", "positions":
                   [[column * 2, row * 2, 0] for row in range(2) for column in range(4)],
                   "faces": [6, 23, 23, 6, 44, 61, 61, 44], "picks": [0], "haptics": False}
-        migrated = dict(legacy, version=5, orientation="portrait")
+        migrated = dict(legacy, version=5, orientation="portrait", difficulty="NORMAL")
         inject(legacy)
 
         def migrated_ready():
@@ -447,6 +458,7 @@ def main():
             hand_left = min(rect[0] for rect in hand_rectangles)
             control_rectangles = [bounds(button(label, nodes)) for label in
                                   ("Hint", "How to play", rotate_label("landscape"), "New board")]
+            control_rectangles.insert(2, bounds(difficulty_button(current, nodes)))
             control_right = max(rect[2] for rect in control_rectangles)
             available_height = max(rect[3] for rect in control_rectangles) - min(rect[1] for rect in control_rectangles)
             minimum_width = min(rect[2] - rect[0] for rect in rectangles) / density

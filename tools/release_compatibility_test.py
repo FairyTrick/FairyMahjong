@@ -13,6 +13,7 @@ from test_device_guard import require_test_emulator
 
 PACKAGE = "com.fairytrick.fairymahjong"
 TILE = re.compile(r"(.+) tile, (\d+) of (\d+), (available|blocked|game over)")
+NEXT_DIFFICULTY = {"Easy": "Normal", "Normal": "Hard", "Hard": "Easy"}
 
 
 def require(value, message):
@@ -85,6 +86,19 @@ class Device:
         require(matches[0].get("enabled") == "true", "Disabled control: " + label)
         return matches[0]
 
+    def difficulty(self, nodes, expected=None):
+        matches = [n for n in nodes if n.get("resource-id") == PACKAGE + ":id/difficulty_button"]
+        require(len(matches) == 1, "Missing unique difficulty control")
+        node = matches[0]
+        require(node.get("enabled") == "true" and node.get("clickable") == "true" and
+                node.get("class") == "android.widget.Button", "Difficulty action is unavailable")
+        description = node.get("content-desc", "")
+        modes = [mode for mode, next_mode in NEXT_DIFFICULTY.items() if description ==
+                 f"Difficulty: {mode}. Switch to {next_mode} and start a new board"]
+        require(len(modes) == 1, "Difficulty action has an incorrect state or next action: " + description)
+        require(expected is None or modes[0] == expected, "Expected difficulty " + str(expected))
+        return node
+
     def guide(self):
         nodes = self.ui()
         ids = {n.get("resource-id") for n in nodes}
@@ -129,6 +143,7 @@ class Device:
         for label in ("Hint", "How to play", "New board"):
             self.button(nodes, label)
         self.rotation(nodes)
+        self.difficulty(nodes)
         return nodes, tiles
 
     def fingerprint(self, game):
@@ -137,6 +152,7 @@ class Device:
             "tiles": sorted((index, node.get("content-desc").split(". Hint:")[0]) for index, node in tiles.items()),
             "hand": sorted(n.get("content-desc").split(", Hint:")[0] for n in nodes
                            if n.get("content-desc", "").startswith("Hand slot ")),
+            "difficulty": self.difficulty(nodes).get("content-desc"),
         }
 
     def settled_game(self):
@@ -262,9 +278,26 @@ def main():
         nodes = device.wait(device.settled_guide, "fresh-launch onboarding")
         device.capture("01-first-launch")
         device.tap(device.button(nodes, "Back to game"))
-        nodes, tiles = device.wait(device.game, "first playable board")
+        state = device.wait(device.settled_game, "first playable board")
+        device.difficulty(state[0], "Normal")
         record("Fresh signed release launches, renders onboarding and a substantial board")
 
+        # Finish on Hard so the existing process-death and Activity-recreation
+        # checks below verify a saved non-default difficulty with real progress.
+        for mode in ("Hard", "Easy", "Normal", "Hard"):
+            previous = device.fingerprint(state)
+            device.tap(device.difficulty(state[0]))
+            def redealt():
+                result = device.settled_game()
+                device.difficulty(result[0], mode)
+                current = device.fingerprint(result)
+                require(current["tiles"] != previous["tiles"], "Difficulty change reused the board")
+                require(current["hand"] == [f"Hand slot {index}: empty" for index in range(1, 5)],
+                        "Difficulty change did not clear all four hand slots")
+                return result
+            state = device.wait(redealt, mode + " difficulty redeal")
+        record("Difficulty defaults to Normal and cycles all three states with fresh boards")
+        nodes, tiles = state
         device.tap(device.button(nodes, "Hint"))
         def hinted():
             nodes, tiles = device.game()
@@ -297,7 +330,7 @@ def main():
         device.adb("shell", "am", "force-stop", PACKAGE)
         device.launch()
         device.wait(lambda: stable(expected), "process restart restores progress")
-        record("Process death restores board, hand and dismissed onboarding")
+        record("Process death restores Hard difficulty, board, hand and dismissed onboarding")
 
         # The developer-setting value alone does not activate Activity destruction
         # on every Android release. am's repeat option explicitly finishes the old
@@ -321,7 +354,7 @@ def main():
             (args.output / "activity-recreation-events.txt").write_text(app_events, encoding="utf-8")
             return result
         state = device.wait(recreated_state, "replacement Activity restores progress")
-        record("Finishing and recreating the Activity preserves progress in the same process")
+        record("Finishing and recreating the Activity preserves Hard difficulty and progress in the same process")
 
         for index in range(4):
             device.tap(device.rotation(state[0]))

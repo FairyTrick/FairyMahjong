@@ -138,7 +138,7 @@ class MahjongGameTest {
             stylesSeen.add(deal.snapshot.shape.id)
             facesSeen.addAll(deal.snapshot.faces)
             val counts = deal.snapshot.faces.groupingBy { it }.eachCount().values.sorted()
-            val expectedRange = if (deal.snapshot.faces.size < 64) 10..14 else 12..16
+            val expectedRange = if (deal.snapshot.faces.size < 64) 13..17 else 15..19
             assertTrue("Active faces for seed $seed", counts.size in expectedRange)
             assertTrue(counts.all { it > 0 && it % 2 == 0 })
             assertTrue(counts.last() - counts.first() <= 2)
@@ -164,7 +164,7 @@ class MahjongGameTest {
 
     @Test fun eachCuratedShapeVariesItsRosterAndCountsWhileRetainingAWinningRoute() {
         for (shape in BoardStyles.curated) {
-            val expectedRange = if (shape.positions.size < 64) 10..14 else 12..16
+            val expectedRange = if (shape.positions.size < 64) 13..17 else 15..19
             val faceCountsSeen = mutableSetOf<Int>()
             val rostersSeen = mutableSetOf<Set<Int>>()
             for (seed in 0L..99L) {

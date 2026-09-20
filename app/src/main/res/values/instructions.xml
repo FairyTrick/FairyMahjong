@@ -17,6 +17,7 @@
     <string name="instructions_hint_rule">Follow the numbers: amber first, blue next or held match.</string>
     <string name="instructions_restart_rule">Sprout: new board.</string>
     <string name="instructions_rotate_rule">Rotate: new view, new board.</string>
+    <string name="instructions_difficulty_rule">Difficulty: Easy, Normal or Hard. Starts a new board.</string>
     <string name="instructions_hand_rule">Your hand holds four tiles. Matching pairs disappear.</string>
     <string name="instructions_hand_before">3 held + a match</string>
     <string name="instructions_hand_after">2 remain</string>

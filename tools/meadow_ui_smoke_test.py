@@ -37,7 +37,7 @@ def meadow_fixture():
     positions = [[column * 2, row * 2, 0] for row in range(2) for column in range(4)]
     state = fixture("meadow-ui", positions, [6, 23, 23, 6, 44, 61, 61, 44])
     require(winnable(state), "Meadow fixture must have a complete winning path")
-    return dict(state, version=5, orientation="portrait")
+    return dict(state, version=5, orientation="portrait", difficulty="NORMAL")
 
 
 def main():
@@ -108,7 +108,8 @@ def main():
         return state
 
     def expect_save(state):
-        require(saved() == state, "Geometry, faces, picks, or haptics differ from the expected save")
+        expected = dict(state, difficulty=state.get("difficulty", "NORMAL"))
+        require(saved() == expected, "Geometry, faces, picks, haptics, orientation, or difficulty differ from the expected save")
         return state
 
     def inject(state):
@@ -177,10 +178,25 @@ def main():
         require((node.get("enabled") == "true") == enabled, f"Unexpected {label} enabled state")
         left, top, right, bottom = bounds(node)
         if density:
-            minimum = 52 * density / 160
+            minimum = 48 * density / 160
             require(right - left >= minimum - 1 and bottom - top >= minimum - 1,
-                    f"{label} touch target is smaller than 52dp")
+                    f"{label} touch target is smaller than 48dp")
         return node
+
+    def difficulty_action(state, nodes):
+        mode = state.get("difficulty", "NORMAL")
+        next_mode = {"EASY": "NORMAL", "NORMAL": "HARD", "HARD": "EASY"}[mode]
+        label = f"Difficulty: {mode.title()}. Switch to {next_mode.title()} and start a new board"
+        found = [node for node in nodes if node.get("resource-id") == args.package + ":id/difficulty_button" and
+                 node.get("content-desc") == label and node.get("class") == "android.widget.Button" and
+                 node.get("clickable") == "true" and node.get("enabled") == "true"]
+        require(len(found) == 1, "Missing or incorrect difficulty action: " + label)
+        left, top, right, bottom = bounds(found[0])
+        if density:
+            minimum = 48 * density / 160
+            require(right - left >= minimum - 1 and bottom - top >= minimum - 1,
+                    "Difficulty touch target is smaller than 48dp")
+        return found[0]
 
     def dismiss_initial_instructions(nodes):
         screens = [node for node in nodes if node.get("package") == args.package and
@@ -217,16 +233,19 @@ def main():
         require(not any(node.get("class") == "android.widget.TextView" and node.get("text") in
                         {"1", "2", "3", "4"} for node in nodes), "Hand-number labels remain visible")
         if status == "playing":
-            require(not any(node.get("text") for node in nodes if node.get("package") == args.package),
-                    "Ordinary play still has a persistent text label")
+            difficulty_label = state.get("difficulty", "NORMAL").title()
+            require(not any(node.get("text") and node.get("text") != difficulty_label
+                            for node in nodes if node.get("package") == args.package),
+                    "Ordinary play has persistent text beyond the difficulty label")
         hint_label = "Finding…" if allow_finding and any(
             node.get("content-desc") == "Finding…" for node in nodes) else "Hint"
         controls = [action(hint_label, nodes, enabled=status == "playing" and hint_label == "Hint"),
-                    action("How to play", nodes), action("Switch to landscape and start a new board", nodes),
+                    action("How to play", nodes), difficulty_action(state, nodes),
+                    action("Switch to landscape and start a new board", nodes),
                     action("New board", nodes)]
         actions = [node for node in nodes if node.get("clickable") == "true"
                    and node.get("package") == args.package and not TILE.match(node.get("content-desc", ""))]
-        require(len(actions) == 4, "Expected exactly four main-screen action nodes")
+        require(len(actions) == 5, "Expected exactly five main-screen action nodes")
         require(not any(node.get("text") == "Play again" or node.get("content-desc") == "Restart" for node in nodes),
                 "Removed Restart menu is still visible")
         available = set(free_tiles(state["positions"], remaining)) if len(held) < 4 else set()
@@ -260,10 +279,11 @@ def main():
                 "Top controls overlap or sit below the board or hand")
         require(all(left[2] <= right[0] for left, right in zip(control_rects, control_rects[1:])),
                 "Top controls overlap each other")
-        centers = [(rect[0] + rect[2]) / 2 for rect in control_rects]
+        gaps = [right[0] - left[2] for left, right in zip(control_rects, control_rects[1:])]
         spacing_tolerance = 3 * density / 160 if density else 2
-        require(all(abs(center - (centers[0] + (centers[-1] - centers[0]) * index / 3)) <= spacing_tolerance
-                    for index, center in enumerate(centers)), "Four top controls are not evenly spaced")
+        require(max(gaps) - min(gaps) <= spacing_tolerance, "Five top controls do not have equal gaps")
+        require(all(abs(rect[1] - control_rects[0][1]) <= 2 for rect in control_rects),
+                "Portrait control icons are not top-aligned")
         if board_rects:
             require(max(rect[3] for rect in board_rects) <= min(rect[1] for rect in hand_rects),
                     "Board tiles overlap the hand")
@@ -297,7 +317,7 @@ def main():
                         node.get("text", "").casefold() in {"how to play", "1", "2"} for node in nodes),
                 "Removed guide title or numbered panel badge remains visible")
         require(not any(TILE.match(node.get("content-desc", "")) or
-                        node.get("content-desc", "").startswith(("Hand slot ", "Board status:")) for node in nodes),
+                        node.get("content-desc", "").startswith(("Hand slot ", "Board status:", "Difficulty:")) for node in nodes),
                 "Guide still exposes the underlying board")
         close = [node for node in nodes if node.get("resource-id") == args.package + ":id/instructions_back_button"
                  and node.get("content-desc") == "Back to game" and node.get("class") == "android.widget.ImageButton"]
@@ -337,7 +357,9 @@ def main():
     def fresh_deal(previous):
         state = saved()
         require(not state["picks"] and state["haptics"] == previous["haptics"] and
-                state["orientation"] == previous["orientation"], "Fresh deal changed preferences/orientation or retained picks")
+                state["orientation"] == previous["orientation"] and
+                state["difficulty"] == previous.get("difficulty", "NORMAL"),
+                "Fresh deal changed preferences/orientation/difficulty or retained picks")
         require(state["positions"] != previous["positions"] or state["faces"] != previous["faces"], "New board reused previous deal")
         counts = Counter(state["faces"])
         require(all(6 <= face <= 61 and count % 2 == 0 for face, count in counts.items()), "New board lacks paired fairy IDs")
@@ -378,7 +400,7 @@ def main():
             description = node.get("content-desc", "")
             if description in {"Hint", "How to play", "New board"} or description.startswith("Hand slot ") or TILE.match(description):
                 bounds(node)
-        record("Four evenly spaced 52dp actions sit above the board; upright hand slots form a full-width bottom row; no title, counter, routine text, or hand numbers")
+        record("Five top-aligned actions of at least 48dp have equal gaps; upright hand slots form a full-width bottom row; only the difficulty label appears during ordinary play")
 
         require(tiles[1].get("enabled") == "false", "Blocked-tap fixture is not blocked")
         tap(tiles[1], allow_disabled=True)
@@ -481,7 +503,8 @@ def main():
                 replay(state)
                 inject(state)
                 nodes, _ = wait_for(lambda: checked_ui(state), label + " presentation")
-                notices = [node for node in nodes if node.get("package") == args.package and node.get("text")]
+                notices = [node for node in nodes if node.get("package") == args.package and node.get("text") and
+                           node.get("text") != state.get("difficulty", "NORMAL").title()]
                 require(notices, "Terminal board has no visible explanation")
                 hand_rects = [bounds(node) for node in nodes
                               if node.get("content-desc", "").startswith("Hand slot ")]
